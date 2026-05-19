@@ -13,6 +13,7 @@ import {
 } from "@phosphor-icons/react";
 import api from "@/services/api";
 import { useRouter } from "next/router";
+import Link from "next/link";
 
 export type SubscriptionType = {
   subscriptionTypeId: number;
@@ -209,9 +210,9 @@ export default function EngerHome() {
             >
               Fazer Login
             </button>
-            <button className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2.5 rounded-lg font-bold transition-all hover:shadow-[0_0_20px_rgba(249,115,22,0.4)] cursor-pointer">
+            <Link href="/cadastro" className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2.5 rounded-lg font-bold transition-all hover:shadow-[0_0_20px_rgba(249,115,22,0.4)] cursor-pointer">
               Assinar Agora
-            </button>
+            </Link>
           </div>
 
           {/* Menu Mobile Toggle */}
@@ -265,9 +266,9 @@ export default function EngerHome() {
           </p>
 
           <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
-            <button className="bg-zinc-900 hover:bg-zinc-800 text-white px-8 py-4 rounded-lg font-bold flex items-center justify-center gap-2 transition-all hover:scale-105 cursor-pointer">
+            <Link href="/cadastro" className="bg-zinc-900 hover:bg-zinc-800 text-white px-8 py-4 rounded-lg font-bold flex items-center justify-center gap-2 transition-all hover:scale-105 cursor-pointer">
               Começar Teste Grátis <ArrowRight weight="bold" />
-            </button>
+            </Link>
             {/* <button className="bg-white hover:bg-zinc-50 text-zinc-900 border border-zinc-200 px-8 py-4 rounded-lg font-bold transition-all cursor-pointer">
               Ver Demonstração
             </button> */}

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, ChangeEvent, FormEvent } from "react";
+import { useRouter } from 'next/navigation';
 import {
   Building2,
   MapPin,
@@ -39,6 +40,7 @@ interface CompanyFormData {
   username: string;
   emailUser: string;
   password: string;
+  confirmPassword: string;
   dateOfBirth: string;
 }
 
@@ -47,6 +49,8 @@ const CompanyRegistration = () => {
   const [loading, setLoading] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
   const totalSteps = 4;
+
+  const router = useRouter();
 
   // 2. Estado tipado com a interface
   const [formData, setFormData] = useState<CompanyFormData>({
@@ -65,6 +69,7 @@ const CompanyRegistration = () => {
     username: "",
     emailUser: "",
     password: "",
+    confirmPassword: "",
     dateOfBirth: "",
   });
 
@@ -89,6 +94,8 @@ const CompanyRegistration = () => {
     }
   };
 
+  const passwordsMatch = formData.password === formData.confirmPassword;
+
   const isStepValid = () => {
     switch (currentStep) {
       case 1:
@@ -109,8 +116,13 @@ const CompanyRegistration = () => {
           !!formData.federativeunit
         );
       case 3:
+        const isPasswordMatch = formData.password === formData.confirmPassword;
         return (
-          !!formData.username && !!formData.emailUser && !!formData.password
+          formData.username.trim() !== "" &&
+          formData.emailUser.trim() !== "" &&
+          formData.password.trim() !== "" &&
+          formData.confirmPassword.trim() !== "" &&
+          isPasswordMatch // Só retorna true se forem iguais
         );
       default:
         return true;
@@ -159,6 +171,12 @@ const CompanyRegistration = () => {
       const response = await api.post("/empresas/cadastro", dataToSend);
 
       console.log("Sucesso:", response.data);
+
+      const novaEmpresaId = response.data.companyId;
+
+      localStorage.setItem('enger_nova_empresa_id', novaEmpresaId);
+
+      router.push('/pagamento');
       // Opcional: Redirecionar o usuário após o sucesso
       // window.location.href = '/login';
     } catch (error: any) {
@@ -174,7 +192,7 @@ const CompanyRegistration = () => {
           .map((e: any) => e.message)
           .join("\n");
       } else {
-        alert(
+        console.log(
           error.response?.data?.message ||
             "Erro interno no servidor. Verifique o console.",
         );
@@ -357,10 +375,15 @@ const CompanyRegistration = () => {
               name="email"
               value={formData.email}
               onChange={handleChange}
-              className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all duration-200 text-black"
+              className={getInputClass(formData.email) + " pl-10"}
               placeholder="contato@empresa.com"
             />
           </div>
+          {showErrors && !formData.email && (
+            <span className="text-red-500 text-xs mt-1">
+              Este campo é obrigatório
+            </span>
+          )}
         </div>
 
         <div className="md:col-span-3 group">
@@ -376,82 +399,122 @@ const CompanyRegistration = () => {
               name="phoneNumber"
               value={formData.phoneNumber}
               onChange={handleChange}
-              className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all duration-200 text-black"
+              className={getInputClass(formData.phoneNumber) + " pl-10"}
               placeholder="(00) 0000-0000"
             />
           </div>
+          {showErrors && !formData.phoneNumber && (
+            <span className="text-red-500 text-xs mt-1">
+              Este campo é obrigatório
+            </span>
+          )}
         </div>
 
         <div className="col-span-full border-t border-gray-100 my-2"></div>
 
         <div className="md:col-span-2 group">
-          <label className="block text-sm font-semibold text-gray-700 mb-2 group-focus-within:text-orange-600 transition-colors">
-            CEP *
-          </label>
-          <input
-            type="text"
-            name="zipCode"
-            value={formData.zipCode}
-            onChange={handleChange}
-            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all duration-200 text-black"
-            placeholder="00000-000"
-          />
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2 group-focus-within:text-orange-600 transition-colors">
+              CEP *
+            </label>
+            <input
+              type="text"
+              name="zipCode"
+              value={formData.zipCode}
+              onChange={handleChange}
+              className={getInputClass(formData.zipCode) + " pl-10"}
+              placeholder="00000-000"
+            />
+          </div>
+          {showErrors && !formData.zipCode && (
+            <span className="text-red-500 text-xs mt-1">
+              Este campo é obrigatório
+            </span>
+          )}
         </div>
 
         <div className="md:col-span-4 group">
-          <label className="block text-sm font-semibold text-gray-700 mb-2 group-focus-within:text-orange-600 transition-colors">
-            Rua / Logradouro *
-          </label>
-          <input
-            type="text"
-            name="street"
-            value={formData.street}
-            onChange={handleChange}
-            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all duration-200 text-black"
-            placeholder="Av. Principal"
-          />
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2 group-focus-within:text-orange-600 transition-colors">
+              Rua / Logradouro *
+            </label>
+            <input
+              type="text"
+              name="street"
+              value={formData.street}
+              onChange={handleChange}
+              className={getInputClass(formData.street) + " pl-10"}
+              placeholder="Av. Principal"
+            />
+          </div>
+          {showErrors && !formData.street && (
+            <span className="text-red-500 text-xs mt-1">
+              Este campo é obrigatório
+            </span>
+          )}
         </div>
 
         <div className="md:col-span-2 group">
-          <label className="block text-sm font-semibold text-gray-700 mb-2 group-focus-within:text-orange-600 transition-colors">
-            Número *
-          </label>
-          <input
-            type="text"
-            name="number"
-            value={formData.number}
-            onChange={handleChange}
-            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all duration-200 text-black"
-            placeholder="123"
-          />
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2 group-focus-within:text-orange-600 transition-colors">
+              Número *
+            </label>
+            <input
+              type="text"
+              name="number"
+              value={formData.number}
+              onChange={handleChange}
+              className={getInputClass(formData.number) + " pl-10"}
+              placeholder="123"
+            />
+          </div>
+          {showErrors && !formData.number && (
+            <span className="text-red-500 text-xs mt-1">
+              Este campo é obrigatório
+            </span>
+          )}
         </div>
 
         <div className="md:col-span-4 group">
-          <label className="block text-sm font-semibold text-gray-700 mb-2 group-focus-within:text-orange-600 transition-colors">
-            Bairro *
-          </label>
-          <input
-            type="text"
-            name="neighborhood"
-            value={formData.neighborhood}
-            onChange={handleChange}
-            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all duration-200 text-black"
-            placeholder="Centro"
-          />
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2 group-focus-within:text-orange-600 transition-colors">
+              Bairro *
+            </label>
+            <input
+              type="text"
+              name="neighborhood"
+              value={formData.neighborhood}
+              onChange={handleChange}
+              className={getInputClass(formData.neighborhood) + " pl-10"}
+              placeholder="Centro"
+            />
+          </div>
+          {showErrors && !formData.neighborhood && (
+            <span className="text-red-500 text-xs mt-1">
+              Este campo é obrigatório
+            </span>
+          )}
         </div>
 
         <div className="md:col-span-4 group">
-          <label className="block text-sm font-semibold text-gray-700 mb-2 group-focus-within:text-orange-600 transition-colors">
-            Cidade *
-          </label>
-          <input
-            type="text"
-            name="city"
-            value={formData.city}
-            onChange={handleChange}
-            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all duration-200 text-black"
-            placeholder="São Paulo"
-          />
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2 group-focus-within:text-orange-600 transition-colors">
+              Cidade *
+            </label>
+            <input
+              type="text"
+              name="city"
+              value={formData.city}
+              onChange={handleChange}
+              className={getInputClass(formData.city) + " pl-10"}
+              placeholder="São Paulo"
+            />
+          </div>
+          {showErrors && !formData.city && (
+            <span className="text-red-500 text-xs mt-1">
+              Este campo é obrigatório
+            </span>
+          )}
         </div>
 
         <div className="md:col-span-2 group">
@@ -462,7 +525,7 @@ const CompanyRegistration = () => {
             name="federativeunit"
             value={formData.federativeunit}
             onChange={handleChange}
-            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all duration-200 appearance-none text-black"
+            className={getInputClass(formData.federativeunit) + " pl-10"}
           >
             <option value="">Selecione...</option>
             <option value="SP">SP</option>
@@ -514,23 +577,35 @@ const CompanyRegistration = () => {
               name="username"
               value={formData.username}
               onChange={handleChange}
-              className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all duration-200 text-black"
+              className={getInputClass(formData.username) + " pl-10"}
               placeholder="Nome do administrador"
             />
           </div>
+          {showErrors && !formData.username && (
+            <span className="text-red-500 text-xs mt-1">
+              Este campo é obrigatório
+            </span>
+          )}
         </div>
 
         <div className="group">
-          <label className="block text-sm font-semibold text-gray-700 mb-2 group-focus-within:text-orange-600 transition-colors">
-            Data de Nascimento
-          </label>
-          <input
-            type="date"
-            name="dateOfBirth"
-            value={formData.dateOfBirth}
-            onChange={handleChange}
-            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all duration-200 text-black"
-          />
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2 group-focus-within:text-orange-600 transition-colors">
+              Data de Nascimento
+            </label>
+            <input
+              type="date"
+              name="dateOfBirth"
+              value={formData.dateOfBirth}
+              onChange={handleChange}
+              className={getInputClass(formData.dateOfBirth) + " pl-10"}
+            />
+          </div>
+          {showErrors && !formData.dateOfBirth && (
+            <span className="text-red-500 text-xs mt-1">
+              Este campo é obrigatório
+            </span>
+          )}
         </div>
 
         <div className="md:col-span-2 group">
@@ -546,29 +621,62 @@ const CompanyRegistration = () => {
               name="emailUser"
               value={formData.emailUser}
               onChange={handleChange}
-              className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all duration-200 text-black"
+              className={getInputClass(formData.emailUser) + " pl-10"}
               placeholder="admin@empresa.com"
             />
           </div>
+          {showErrors && !formData.emailUser && (
+            <span className="text-red-500 text-xs mt-1">
+              Este campo é obrigatório
+            </span>
+          )}
         </div>
 
-        <div className="md:col-span-2 group">
-          <label className="block text-sm font-semibold text-gray-700 mb-2 group-focus-within:text-orange-600 transition-colors">
+        <div className="group">
+          <label className={`block text-sm font-semibold mb-2 ${showErrors && !formData.password ? 'text-red-500' : 'text-gray-700'}`}>
             Senha Inicial *
           </label>
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 group-focus-within:text-orange-500">
               <Lock size={18} />
             </div>
-            <input
-              type="password"
-              name="password"
-              value={formData.password}
-              onChange={handleChange}
-              className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all duration-200 text-black"
+            <input 
+              type="password" name="password" value={formData.password} onChange={handleChange}
+              className={getInputClass(formData.password) + " pl-10"}
               placeholder="••••••••"
             />
           </div>
+          {showErrors && !formData.password && (
+            <span className="text-red-500 text-xs mt-1 font-medium">Este campo é obrigatório</span>
+          )}
+        </div>
+
+        {/* Confirmar Senha */}
+        <div className="group">
+          <label className={`block text-sm font-semibold mb-2 ${showErrors && (!formData.confirmPassword || !passwordsMatch) ? 'text-red-500' : 'text-gray-700'}`}>
+            Confirmar Senha *
+          </label>
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 group-focus-within:text-orange-500">
+              <Lock size={18} />
+            </div>
+            <input 
+              type="password" name="confirmPassword" value={formData.confirmPassword} onChange={handleChange}
+              // Força o estilo vermelho caso as senhas não coincidam
+              className={`${getInputClass(formData.confirmPassword)} pl-10 ${showErrors && !passwordsMatch ? 'border-red-500 bg-red-50' : ''}`}
+              placeholder="••••••••"
+            />
+          </div>
+          {showErrors && (
+            <>
+              {!formData.confirmPassword && (
+                <span className="text-red-500 text-xs mt-1 font-medium block">Este campo é obrigatório</span>
+              )}
+              {formData.confirmPassword && !passwordsMatch && (
+                <span className="text-red-500 text-xs mt-1 font-medium block">As senhas não coincidem</span>
+              )}
+            </>
+          )}
         </div>
       </div>
     </div>
