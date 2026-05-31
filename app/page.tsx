@@ -12,8 +12,9 @@ import {
   X,
 } from "@phosphor-icons/react";
 import api from "@/services/api";
-import { useRouter } from "next/router";
+import { useRouter } from 'next/navigation';
 import Link from "next/link";
+import { jwtDecode } from "jwt-decode"; // 🚀 NOVO: Decodificador de Token
 
 export type SubscriptionType = {
   subscriptionTypeId: number;
@@ -27,22 +28,20 @@ export interface LoginRequest {
 }
 
 export default function EngerHome() {
-  // const router = useRouter();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [subscriptionsType, setSubscriptionsType] = useState<SubscriptionType[]>([]);
-  // const [credentials, setCredentials] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
+  const router = useRouter();
 
   useEffect(() => {
-    // Função assíncrona dentro do useEffect
     const carregarDados = async () => {
       try {
-        const response = await api.get("/tipo_assinatura"); // Rota do C#
+        const response = await api.get("/tipo_assinatura"); 
         setSubscriptionsType(response.data);
       } catch (error) {
         console.error("Erro ao buscar:", error);
@@ -52,7 +51,6 @@ export default function EngerHome() {
     carregarDados();
   }, []);
 
-  // Efeito de rolagem para o Header
   useEffect(() => {
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 50);
@@ -64,34 +62,95 @@ export default function EngerHome() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setError("");
 
     try {
+      // 1. Faz o login. Sua API C# já injeta o cookie HttpOnly de autenticação aqui!
       const response = await api.post("/login", {
         email,
-        password: senha, // Ajuste o nome da chave conforme o seu DTO do C#
+        password: senha, 
+      }, {
+        withCredentials: true 
       });
 
-      console.log("Sucesso:", response.data);
-      setIsLoginOpen(false); // Fecha o modal no sucesso
+      const { expirationDate } = response.data;
+
+      console.log("Sucesso Login Inicial:", response.data);
+
+      // 2. CHAMADA CRÍTICA: Busca os dados reais do usuário logado através do seu endpoint /auth/me
+      const responseLogin = await api.get('/auth/me', { withCredentials: true });
+      console.log("Dados do Usuário (/auth/me):", responseLogin.data);
+
+      // Desestruturamos os dados vindos direto do seu objeto do C#
+      // (adminLevel, companyId, expirationDate, subscriptionTypeId)
+      const { userName, companyId, adminLevel, subscriptionTypeId } = responseLogin.data;
+
+      // 3. Injeta os cookies locais que o seu Middleware e Dashboard precisam ler
+      document.cookie = "EngerAuthToken=true; path=/; max-age=86400; SameSite=Lax";
+      document.cookie = `admin_level=${adminLevel || 0}; path=/; max-age=86400; SameSite=Lax`;
+
+      // 4. Guarda na sessão para uso visual das telas internas
+      sessionStorage.setItem('enger_user', JSON.stringify({
+        userName,
+        companyId,
+        adminLevel,
+        expirationDate
+      }));
+
+      // ========================================================
+      // 🧠 FLUXO DE REDIRECIONAMENTO COM BASE NAS RESPOSTAS DA API
+      // ========================================================
+
+      // CASO A: Usuário não possui nenhuma empresa vinculada (Manda para o pagamento comum)
+      if (!companyId) {
+        document.cookie = "enger_cadastro_pendente=true; path=/; max-age=900; SameSite=Lax";
+        setIsLoginOpen(false);
+        window.location.href = "/pagamento";
+        return;
+      }
+
+      // CASO B: Possui empresa, vamos validar se a data de expiração passou
+      if (expirationDate) {
+        const dataExpiracao = new Date(expirationDate);
+        const agora = new Date();
+
+        if (dataExpiracao < agora) {
+          // Salva o ID do plano que ele usava para a tela /assinatura pré-selecionar
+          if (subscriptionTypeId) {
+            sessionStorage.setItem('enger_plano_anterior_id', subscriptionTypeId.toString());
+          }
+
+          // Ativa as travas lidas pelo seu Middleware
+          document.cookie = "enger_cadastro_pendente=true; path=/; max-age=900; SameSite=Lax";
+          document.cookie = "enger_assinatura_expirada=true; path=/; max-age=86400; SameSite=Lax";
+          
+          setIsLoginOpen(false);
+          window.location.href = "/assinatura";
+          return;
+        }
+      }
+
+      // CASO C: Conta ativa e tudo em dia! Limpa travas de expiração e vai pro painel
+      document.cookie = "enger_assinatura_expirada=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      setIsLoginOpen(false);
+      window.location.href = "/dashboard";
+
     } catch (err: any) {
-    const apiData = err.response?.data;
+      const apiData = err.response?.data;
 
-    // Verifica se existe o array de erros que você me mostrou
-    if (apiData?.errors && Array.isArray(apiData.errors)) {
-      // Extraímos apenas as mensagens e juntamos em uma string
-      const errorMessages = apiData.errors.map((e: any) => e.message).join(" ");
-      setError(errorMessages);
-    } 
-    else if (apiData?.message) {
-      // Caso o backend envie uma mensagem simples em vez da lista
-      setError(apiData.message);
-    } 
-    else {
-      setError("Ocorreu um erro inesperado. Tente novamente.");
-    }
+      if (apiData?.errors && Array.isArray(apiData.errors)) {
+        const errorMessages = apiData.errors.map((e: any) => e.message).join(" ");
+        setError(errorMessages);
+      } 
+      else if (apiData?.message) {
+        setError(apiData.message);
+      } 
+      else {
+        setError("Ocorreu um erro inesperado. Tente novamente.");
+      }
 
-    console.error("Erro do servidor:", apiData);
-  } finally {
+      console.error("Erro do servidor:", apiData);
+    } finally {
       setLoading(false);
     }
   };
@@ -185,23 +244,15 @@ export default function EngerHome() {
         className={`fixed w-full z-50 transition-all duration-300 ${isScrolled ? "bg-white/90 backdrop-blur-md shadow-md py-4" : "bg-transparent py-6"}`}
       >
         <div className="max-w-7xl mx-auto px-6 flex justify-between items-center">
-          {/* Logo */}
           <div className="text-3xl font-black tracking-tighter text-zinc-900">
             ENGER<span className="text-orange-500">.</span>
           </div>
 
-          {/* Menu Desktop */}
           <div className="hidden md:flex items-center gap-8 font-medium text-zinc-600">
-            <a
-              href="#recursos"
-              className="hover:text-orange-500 transition-colors"
-            >
+            <a href="#recursos" className="hover:text-orange-500 transition-colors">
               Recursos
             </a>
-            <a
-              href="#planos"
-              className="hover:text-orange-500 transition-colors"
-            >
+            <a href="#planos" className="hover:text-orange-500 transition-colors">
               Planos
             </a>
             <button
@@ -215,7 +266,6 @@ export default function EngerHome() {
             </Link>
           </div>
 
-          {/* Menu Mobile Toggle */}
           <button
             className="md:hidden text-zinc-900"
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -224,7 +274,6 @@ export default function EngerHome() {
           </button>
         </div>
 
-        {/* Menu Mobile Dropdown */}
         {isMobileMenuOpen && (
           <div className="md:hidden absolute top-full left-0 w-full bg-white shadow-lg border-t border-zinc-100 flex flex-col p-6 gap-4">
             <a href="#recursos" className="text-zinc-600 font-medium">
@@ -233,7 +282,7 @@ export default function EngerHome() {
             <a href="#planos" className="text-zinc-600 font-medium">
               Planos
             </a>
-            <button className="text-left text-zinc-900 font-bold">
+            <button onClick={() => { setIsMobileMenuOpen(false); setIsLoginOpen(true); }} className="text-left text-zinc-900 font-bold">
               Fazer Login
             </button>
             <button className="bg-orange-500 text-white px-6 py-3 rounded-lg font-bold mt-2">
@@ -245,11 +294,10 @@ export default function EngerHome() {
 
       {/* HERO SECTION */}
       <section className="relative pt-40 pb-24 lg:pt-52 lg:pb-32 px-6 flex flex-col items-center text-center overflow-hidden">
-        {/* Efeitos Decorativos de Fundo flutuantes */}
-        <div className="absolute top-20 left-10 md:left-1/4 w-72 h-72 bg-orange-400 rounded-full mix-blend-multiply filter blur-[100px] opacity-30 animate-[pulse_4s_ease-in-out_infinite]"></div>
-        <div className="absolute top-40 right-10 md:right-1/4 w-80 h-80 bg-zinc-400 rounded-full mix-blend-multiply filter blur-[100px] opacity-20 animate-[pulse_6s_ease-in-out_infinite]"></div>
+        <div className="absolute top-20 left-10 md:left-1/4 w-72 h-72 bg-orange-400 rounded-full mix-blend-multiply filter blur-[100px] opacity-30"></div>
+        <div className="absolute top-40 right-10 md:right-1/4 w-80 h-80 bg-zinc-400 rounded-full mix-blend-multiply filter blur-[100px] opacity-20"></div>
 
-        <div className="z-10 max-w-4xl animate-[fade-in-up_1s_ease-out]">
+        <div className="z-10 max-w-4xl">
           <span className="inline-block py-1 px-3 rounded-full bg-orange-100 text-orange-600 font-semibold text-sm mb-6 border border-orange-200">
             A revolução na gestão de obras
           </span>
@@ -269,69 +317,50 @@ export default function EngerHome() {
             <Link href="/cadastro" className="bg-zinc-900 hover:bg-zinc-800 text-white px-8 py-4 rounded-lg font-bold flex items-center justify-center gap-2 transition-all hover:scale-105 cursor-pointer">
               Começar Teste Grátis <ArrowRight weight="bold" />
             </Link>
-            {/* <button className="bg-white hover:bg-zinc-50 text-zinc-900 border border-zinc-200 px-8 py-4 rounded-lg font-bold transition-all cursor-pointer">
-              Ver Demonstração
-            </button> */}
           </div>
         </div>
       </section>
 
       {/* RECURSOS SECTION */}
-      <section
-        id="recursos"
-        className="py-24 bg-zinc-50 border-y border-zinc-100"
-      >
+      <section id="recursos" className="py-24 bg-zinc-50 border-y border-zinc-100">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-16">
             <h2 className="text-3xl lg:text-4xl font-bold text-zinc-900">
               Tudo que sua construtora precisa
             </h2>
             <p className="text-zinc-500 mt-4 max-w-2xl mx-auto text-lg">
-              Substitua planilhas confusas por um ecossistema inteligente
-              desenhado especificamente para o canteiro de obras e o escritório.
+              Substitua planilhas confusas por um ecossistema inteligente.
             </p>
           </div>
 
           <div className="grid md:grid-cols-3 gap-8">
-            {/* Card 1 */}
-            <div className="bg-white p-8 rounded-2xl shadow-sm border border-zinc-100 hover:shadow-lg hover:border-orange-200 transition-all group">
-              <div className="w-14 h-14 bg-orange-100 text-orange-500 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+            <div className="bg-white p-8 rounded-2xl shadow-sm border border-zinc-100 hover:shadow-lg transition-all group">
+              <div className="w-14 h-14 bg-orange-100 text-orange-500 rounded-xl flex items-center justify-center mb-6">
                 <Buildings size={32} weight="duotone" />
               </div>
-              <h3 className="text-xl font-bold text-zinc-900 mb-3">
-                Orçamentos Precisos
-              </h3>
+              <h3 className="text-xl font-bold text-zinc-900 mb-3">Orçamentos Precisos</h3>
               <p className="text-zinc-500 leading-relaxed">
-                Crie e monte orçamentos interativos de forma rápida. Exporte
-                relatórios profissionais em PDF para seus clientes em segundos.
+                Crie e monte orçamentos interativos de forma rápida. Exporte relatórios profissionais em PDF em segundos.
               </p>
             </div>
 
-            {/* Card 2 */}
-            <div className="bg-white p-8 rounded-2xl shadow-sm border border-zinc-100 hover:shadow-lg hover:border-orange-200 transition-all group">
-              <div className="w-14 h-14 bg-zinc-100 text-zinc-900 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+            <div className="bg-white p-8 rounded-2xl shadow-sm border border-zinc-100 hover:shadow-lg transition-all group">
+              <div className="w-14 h-14 bg-zinc-100 text-zinc-900 rounded-xl flex items-center justify-center mb-6">
                 <HardHat size={32} weight="duotone" />
               </div>
-              <h3 className="text-xl font-bold text-zinc-900 mb-3">
-                Gestão de Equipes
-              </h3>
+              <h3 className="text-xl font-bold text-zinc-900 mb-3">Gestão de Equipes</h3>
               <p className="text-zinc-500 leading-relaxed">
-                Controle a presença, alocação de funcionários e acompanhe a
-                produtividade diária de quem está com a mão na massa.
+                Controle a presença, alocação de funcionários e acompanhe a produtividade diária de quem está com a mão na massa.
               </p>
             </div>
 
-            {/* Card 3 */}
-            <div className="bg-white p-8 rounded-2xl shadow-sm border border-zinc-100 hover:shadow-lg hover:border-orange-200 transition-all group">
-              <div className="w-14 h-14 bg-orange-100 text-orange-500 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+            <div className="bg-white p-8 rounded-2xl shadow-sm border border-zinc-100 hover:shadow-lg transition-all group">
+              <div className="w-14 h-14 bg-orange-100 text-orange-500 rounded-xl flex items-center justify-center mb-6">
                 <ChartLineUp size={32} weight="duotone" />
               </div>
-              <h3 className="text-xl font-bold text-zinc-900 mb-3">
-                Controle Financeiro
-              </h3>
+              <h3 className="text-xl font-bold text-zinc-900 mb-3">Controle Financeiro</h3>
               <p className="text-zinc-500 leading-relaxed">
-                Acompanhe o fluxo de caixa da obra e tenha relatórios detalhados
-                para tomada de decisão e fechamento de medições.
+                Acompanhe o fluxo de caixa da obra e tenha relatórios detalhados para tomada de decisão e fechamento de medições.
               </p>
             </div>
           </div>
@@ -342,111 +371,21 @@ export default function EngerHome() {
       <section id="planos" className="py-24 bg-white">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-16">
-            <h2 className="text-3xl lg:text-4xl font-bold text-zinc-900">
-              Planos e Assinaturas
-            </h2>
-            <p className="text-zinc-500 mt-4 text-lg">
-              Escolha a melhor opção para sua construtora.
-            </p>
+            <h2 className="text-3xl lg:text-4xl font-bold text-zinc-900">Planos e Assinaturas</h2>
           </div>
 
           <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto items-stretch">
             {subscriptionsType.map((plan) => {
-              // Lógica para verificar se este é o plano de destaque (Anual)
-              const isAnual = plan.descriptionSubscriptionType
-                .toLowerCase()
-                .includes("anual");
-
+              const isAnual = plan.descriptionSubscriptionType.toLowerCase().includes("anual");
               return (
-                <div
-                  key={plan.subscriptionTypeId}
-                  className={`rounded-2xl p-8 shadow-sm border-2 transition-all relative ${
-                    isAnual
-                      ? "bg-zinc-900 border-orange-500 shadow-[0_0_30px_rgba(249,115,22,0.15)] md:-translate-y-4"
-                      : "bg-white border-zinc-200"
-                  }`}
-                >
-                  {isAnual && (
-                    <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-orange-500 text-white px-4 py-1 rounded-full text-sm font-bold tracking-wide whitespace-nowrap">
-                      MELHOR CUSTO-BENEFÍCIO
-                    </div>
-                  )}
-
-                  <h3
-                    className={`text-xl font-bold ${isAnual ? "text-white" : "text-zinc-900"}`}
-                  >
-                    {plan.descriptionSubscriptionType}
-                  </h3>
-
-                  <p
-                    className={`text-sm mt-2 ${isAnual ? "text-zinc-400" : "text-zinc-500"}`}
-                  >
-                    {isAnual
-                      ? "O plano mais completo para sua gestão."
-                      : "Acesso total aos recursos."}
-                  </p>
-
+                <div key={plan.subscriptionTypeId} className={`rounded-2xl p-8 shadow-sm border-2 transition-all relative ${isAnual ? "bg-zinc-900 border-orange-500 md:-translate-y-4" : "bg-white border-zinc-200"}`}>
+                  <h3 className={`text-xl font-bold ${isAnual ? "text-white" : "text-zinc-900"}`}>{plan.descriptionSubscriptionType}</h3>
                   <div className="my-6">
-                    <span
-                      className={`text-4xl font-black ${isAnual ? "text-white" : "text-zinc-900"}`}
-                    >
-                      R${" "}
-                      {plan.subscriptionValue.toLocaleString("pt-br", {
-                        minimumFractionDigits: 2,
-                      })}
-                    </span>
-                    <span
-                      className={
-                        isAnual ? "text-zinc-400" : "text-zinc-500 text-sm ml-1"
-                      }
-                    >
-                      /
-                      {plan.descriptionSubscriptionType
-                        .toLowerCase()
-                        .replace("al", "")}
+                    <span className={`text-4xl font-black ${isAnual ? "text-white" : "text-zinc-900"}`}>
+                      R$ {plan.subscriptionValue.toLocaleString("pt-br", { minimumFractionDigits: 2 })}
                     </span>
                   </div>
-
-                  <ul className="space-y-4 mb-8">
-                    <li
-                      className={`flex items-center gap-3 ${isAnual ? "text-zinc-300" : "text-zinc-600"}`}
-                    >
-                      <CheckCircle
-                        className="text-orange-500"
-                        weight="fill"
-                        size={20}
-                      />
-                      Acesso a todos os módulos
-                    </li>
-                    <li
-                      className={`flex items-center gap-3 ${isAnual ? "text-zinc-300" : "text-zinc-600"}`}
-                    >
-                      <CheckCircle
-                        className="text-orange-500"
-                        weight="fill"
-                        size={20}
-                      />
-                      Suporte especializado
-                    </li>
-                    {isAnual && (
-                      <li className="flex items-center gap-3 text-zinc-300">
-                        <CheckCircle
-                          className="text-orange-500"
-                          weight="fill"
-                          size={20}
-                        />
-                        Bônus: Consultoria Inicial
-                      </li>
-                    )}
-                  </ul>
-
-                  <button
-                    className={`w-full font-bold py-3 rounded-lg transition-all cursor-pointer ${
-                      isAnual
-                        ? "bg-orange-500 hover:bg-orange-600 text-white hover:shadow-[0_0_15px_rgba(249,115,22,0.4)]"
-                        : "bg-zinc-100 hover:bg-zinc-200 text-zinc-900"
-                    }`}
-                  >
+                  <button onClick={() => setIsLoginOpen(true)} className={`w-full font-bold py-3 rounded-lg transition-all cursor-pointer ${isAnual ? "bg-orange-500 text-white" : "bg-zinc-100 text-zinc-900"}`}>
                     Assinar {plan.descriptionSubscriptionType}
                   </button>
                 </div>
@@ -459,20 +398,8 @@ export default function EngerHome() {
       {/* FOOTER */}
       <footer className="bg-zinc-950 py-12 border-t border-zinc-900">
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-6">
-          <div className="text-2xl font-black tracking-tighter text-white">
-            ENGER<span className="text-orange-500">.</span>
-          </div>
-          <p className="text-zinc-500 text-sm">
-            © {new Date().getFullYear()} ENGER. Todos os direitos reservados.
-          </p>
-          <div className="flex gap-4 text-zinc-500 text-sm font-medium">
-            <a href="#" className="hover:text-white transition-colors">
-              Termos de Uso
-            </a>
-            <a href="#" className="hover:text-white transition-colors">
-              Privacidade
-            </a>
-          </div>
+          <div className="text-2xl font-black tracking-tighter text-white">ENGER<span className="text-orange-500">.</span></div>
+          <p className="text-zinc-500 text-sm">© {new Date().getFullYear()} ENGER. Todos os direitos reservados.</p>
         </div>
       </footer>
     </main>
