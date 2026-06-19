@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useParams } from 'next/navigation';
+import { useRouter, useParams } from "next/navigation";
 import { 
   Building2, MapPin, Calendar, CheckCircle2, 
   DollarSign, ChevronDown, Check, 
@@ -13,6 +13,8 @@ import api from '@/services/api';
 export default function ClientBudgetApproval() {
   const params = useParams();
   const token = params?.token as string;
+  const id = params?.id as string;
+  const router = useRouter();
 
   // Estados de Carregamento e Segurança
   const [isLoading, setIsLoading] = useState(true);
@@ -39,7 +41,7 @@ export default function ClientBudgetApproval() {
     const fetchBudgetByToken = async () => {
       try {
         setIsLoading(true);
-        const response = await api.get(`/orcamento/proposta/1/${token}`);
+        const response = await api.get(`/orcamento/proposta/${id}/${token}`);
         const data = response.data;
         
         const safeStatus = parseStatus(data.status);
@@ -78,16 +80,18 @@ export default function ClientBudgetApproval() {
     isApprove ? setIsApproving(true) : setIsDeclining(true);
     
     try {
-      await api.post(`/orcamento/acao/${token}`, { isApproved: isApprove });
-      
       if (isApprove) {
+        await api.post(`/obras/${token}/${id}`,  {withCredentials: true});
+        
         setIsApproved(true);
       } else {
+        await api.post(`/orcamento/recusar/${id}/${token}`);
+        
         setShowDeclineModal(false);
         setAccessDenied(true);
       }
     } catch (error) {
-      alert("Ocorreu um erro ao processar sua resposta. Tente novamente.");
+      console.error("Erro na ação da proposta:", error);
     } finally {
       isApprove ? setIsApproving(false) : setIsDeclining(false);
     }
@@ -145,14 +149,12 @@ export default function ClientBudgetApproval() {
     <div className="min-h-screen bg-[#F8F9FA] font-sans text-gray-900 pb-20 lg:pb-0 selection:bg-orange-100 selection:text-orange-900">
       <header className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-30 shadow-sm">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gray-900 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-md">
-              E
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 font-medium uppercase tracking-widest">Plataforma SaaS</p>
-              <p className="font-bold text-gray-900 leading-tight">ENGER Construções</p>
-            </div>
+           <div className="flex items-center justify-start shrink-0">
+            <h2
+              className="text-3xl font-black text-zinc-900 cursor-pointer"
+            >
+              ENGER<span className="text-orange-500">.</span>
+            </h2>
           </div>
           <div className="hidden sm:flex items-center gap-2 text-xs font-semibold px-3 py-1.5 bg-gray-100 text-gray-600 rounded-full">
             <ShieldCheck size={14} className="text-green-600" /> Proposta Digital Autenticada

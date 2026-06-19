@@ -54,8 +54,45 @@ export function middleware(request: NextRequest) {
     }
 
     // Validação de Nível de Acesso interna
-    if (pathname.startsWith('/dashboard/financeiro') && adminLevel < 6) {
+    if (pathname.startsWith('/dashboard/obras') && adminLevel < 6) {
       return NextResponse.redirect(new URL('/dashboard', request.url)); 
+    }
+
+     if (pathname.startsWith('/dashboard/cargos') && adminLevel < 6) {
+      return NextResponse.redirect(new URL('/dashboard', request.url)); 
+    }
+
+     if (pathname.startsWith('/dashboard/clientes') && adminLevel < 6) {
+      return NextResponse.redirect(new URL('/dashboard', request.url)); 
+    }
+    
+     if (pathname.startsWith('/dashboard/configuracoes') && adminLevel < 6) {
+      return NextResponse.redirect(new URL('/dashboard', request.url)); 
+    }
+    
+     if (pathname.startsWith('/dashboard/funcionarios') && adminLevel < 6) {
+      return NextResponse.redirect(new URL('/dashboard', request.url)); 
+    }
+
+      if (pathname.startsWith('/dashboard/financeiro') && adminLevel < 6) {
+      return NextResponse.redirect(new URL('/dashboard', request.url)); 
+    }
+
+     if (pathname.startsWith('/dashboard/orcamentos') && adminLevel < 6) {
+      return NextResponse.redirect(new URL('/dashboard', request.url)); 
+    }
+
+    if (pathname.startsWith('/dashboard/usuarios') && adminLevel < 6) {
+      return NextResponse.redirect(new URL('/dashboard', request.url)); 
+    }
+
+    if (pathname.startsWith('/dashboard/relatorios') && adminLevel < 6) {
+      return NextResponse.redirect(new URL('/dashboard', request.url)); 
+    }
+
+    // Usuário Master
+    if (pathname.startsWith('/configuracoes/site/dashboard') && adminLevel < 7) {
+      return NextResponse.redirect(new URL('/', request.url)); 
     }
   }
 

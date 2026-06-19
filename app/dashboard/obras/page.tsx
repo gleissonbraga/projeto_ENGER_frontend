@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   HardHat, Search, ChevronRight, ArrowLeft, Save, 
   Hammer, Users, Truck, DollarSign, CheckCircle, 
-  MapPin, Plus, Trash2, X, Building2, User, Loader2
+  MapPin, Plus, Trash2, X, Building2, User, Loader2,
+  Paperclip, UploadCloud, FileText, Clock, AlertTriangle, Download, Eye
 } from 'lucide-react';
 import api from '@/services/api';
 
@@ -12,10 +13,10 @@ import api from '@/services/api';
 // 📊 INTERFACES RIGOROSAS BASEADAS NO JSON DO C#
 // ========================================================
 interface ConstructionStage {
-  stageId: number;
+  stageId?: number;
   description: string;
   order: number;
-  constructionId: number;
+  constructionId?: number;
   status: number;
 }
 
@@ -48,13 +49,14 @@ interface Construction {
   company?: any;
 }
 
-type TabType = 'geral' | 'etapas' | 'equipe' | 'equipamentos';
+type TabType = 'geral' | 'etapas' | 'equipe' | 'financeiro' | 'anexos';
 
 export default function ObrasPage() {
   const [constructionView, setConstructionView] = useState<'list' | 'manage'>('list');
   const [activeTab, setActiveTab] = useState<TabType>('geral');
   
   const [constructions, setConstructions] = useState<Construction[]>([]);
+  const [allEmployees, setAllEmployees] = useState<any[]>([]); 
   const [currentConstruction, setCurrentConstruction] = useState<Construction | null>(null);
   
   const [isLoading, setIsLoading] = useState(true);
@@ -62,10 +64,10 @@ export default function ObrasPage() {
   const [companyId, setCompanyId] = useState<number | null>(null);
   const [listSearchQuery, setListSearchQuery] = useState('');
 
-  // Estados de Modais
   const [isSelectionModalOpen, setIsSelectionModalOpen] = useState(false);
   const [modalConfig, setModalConfig] = useState<{ title: string, type: 'user' | 'employee' | '', onSelect: any }>({ title: '', type: '', onSelect: null });
   const [modalSearchQuery, setModalSearchQuery] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ========================================================
   // 🔄 INTEGRAÇÃO COM A API
@@ -75,49 +77,25 @@ export default function ObrasPage() {
     if (sessionData) {
       const parsedData = JSON.parse(sessionData);
       setCompanyId(parsedData.companyId);
-      fetchConstructions(parsedData.companyId);
+      loadInitialData(parsedData.companyId);
     } else {
       setIsLoading(false);
     }
   }, []);
 
-  const fetchConstructions = async (compId: number) => {
+  const loadInitialData = async (compId: number) => {
     try {
       setIsLoading(true);
-      // Rota presumida com base no padrão ENGER
-      const response = await api.get(`/obras/${compId}`);
+      const [resObras, resFunc] = await Promise.all([
+        api.get(`/obras/${compId}`),
+        api.get(`/funcionarios/${compId}`) 
+      ]);
       
-      // Ordena pelas mais recentes
-      const sorted = response.data.sort((a: any, b: any) => b.constructionId - a.constructionId);
+      const sorted = resObras.data.sort((a: any, b: any) => b.constructionId - a.constructionId);
       setConstructions(sorted);
+      setAllEmployees(resFunc.data);
     } catch (error) {
-      console.error("Erro ao buscar obras:", error);
-      // Fallback para teste visual enquanto a rota não está 100% no backend:
-      setConstructions([{
-        constructionId: 4,
-        description: "Pintura e Texturização de Fachada Externa - Edifício Horizonte",
-        budgetId: 15,
-        totalPaidValue: 5000,
-        totalConstructionValue: 14750,
-        street: "Rua Bento Gonçalves",
-        number: "1020",
-        city: "Porto Alegre",
-        neighborhood: "Moinhos de Vento",
-        zipCode: "90000-000",
-        stateAbbreviation: "RS",
-        stateDescription: "Rio Grande do Sul",
-        startDate: "2026-05-30T22:03:35.676647Z",
-        estimatedDeliveryDate: "2026-12-15T00:00:00.000Z",
-        finalizationDate: null,
-        status: 1,
-        companyId: 1,
-        responsibleId: 1,
-        stages: [
-          { stageId: 4, description: "Preparação e Tratamento de Superfície", order: 1, constructionId: 4, status: 1 },
-          { stageId: 5, description: "Aplicação de Textura e Pintura Final", order: 2, constructionId: 4, status: 1 }
-        ],
-        employees: [], payments: [], presences: [], rentals: [], attachments: []
-      }]);
+      console.error("Erro ao buscar dados iniciais:", error);
     } finally {
       setIsLoading(false);
     }
@@ -127,14 +105,83 @@ export default function ObrasPage() {
     if (!currentConstruction) return;
     setIsSubmitting(true);
     try {
-      await api.put(`/obras/${companyId}/${currentConstruction.constructionId}`, currentConstruction);
-      alert('Obra atualizada com sucesso!');
-      fetchConstructions(companyId!);
+      const payload = {
+        description: currentConstruction.description,
+        budgetId: currentConstruction.budgetId,
+        totalPaidValue: currentConstruction.totalPaidValue,
+        totalConstructionValue: currentConstruction.totalConstructionValue,
+        street: currentConstruction.street,
+        number: currentConstruction.number,
+        city: currentConstruction.city,
+        neighborhood: currentConstruction.neighborhood,
+        zipCode: currentConstruction.zipCode,
+        stateAbbreviation: currentConstruction.stateAbbreviation,
+        stateDescription: currentConstruction.stateDescription,
+        startDate: currentConstruction.startDate,
+        estimatedDeliveryDate: currentConstruction.estimatedDeliveryDate,
+        finalizationDate: currentConstruction.finalizationDate,
+        status: currentConstruction.status,
+        companyId: currentConstruction.companyId,
+        responsibleId: currentConstruction.responsibleId,
+        
+        stages: currentConstruction.stages?.map(s => ({
+          stageId: s.stageId || 0, 
+          description: s.description,
+          order: s.order,
+          status: s.status
+        })) || [],
+        
+        employees: currentConstruction.employees?.map(e => ({
+          constructionEmployeeId: e.constructionEmployeeId || 0,
+          employeeId: e.employeeId || e.id
+        })) || [],
+        
+        rentals: currentConstruction.rentals || [],
+        
+        attachments: currentConstruction.attachments?.map(a => ({
+          constructionAttachmentId: a.constructionAttachmentId || 0,
+          description: a.description || 'Anexo da Obra',
+          imageUrl: a.imageUrl || ''
+        })) || [],
+        
+        payments: currentConstruction.payments?.map(p => ({
+          paymentDate: p.paymentDate,
+          paymentTypeId: p.paymentTypeId || 0,
+          stageId: p.stageId || 0,
+          paymentValue: p.paymentValue || 0
+        })) || []
+      };
+
+      await api.put(`/obras/${companyId}/${currentConstruction.constructionId}`, payload);
+      await loadInitialData(companyId!);
+      
+      setConstructionView('list');
+      setCurrentConstruction(null);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (error) {
       console.error("Erro ao atualizar obra:", error);
-      alert('Ocorreu um erro ao atualizar a obra.');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0 && currentConstruction) {
+      const file = e.target.files[0];
+      
+      const newAttachment = {
+        constructionAttachmentId: 0, 
+        description: file.name,
+        // Ao integrar com o backend, aqui deve vir a URL real retornada pela sua API de upload S3/Blob
+        imageUrl: URL.createObjectURL(file) 
+      };
+
+      setCurrentConstruction({
+        ...currentConstruction,
+        attachments: [...(currentConstruction.attachments || []), newAttachment]
+      });
+      
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -300,13 +347,13 @@ export default function ObrasPage() {
         </button>
       </div>
 
-      {/* Abas de Navegação Interna da Obra */}
       <div className="flex gap-2 mb-6 border-b border-gray-200 pb-px overflow-x-auto hide-scrollbar">
         {[
           { id: 'geral', label: 'Dados Gerais', icon: HardHat },
           { id: 'etapas', label: 'Etapas de Execução', icon: Hammer },
           { id: 'equipe', label: 'Equipe Alocada', icon: Users },
-          { id: 'equipamentos', label: 'Aluguéis / Equip', icon: Truck },
+          { id: 'financeiro', label: 'Financeiro', icon: DollarSign },
+          { id: 'anexos', label: 'Arquivos / Anexos', icon: Paperclip },
         ].map(tab => (
           <button
             key={tab.id}
@@ -324,7 +371,7 @@ export default function ObrasPage() {
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
         
-        {/* ABA 1: DADOS GERAIS */}
+        {/* ================= ABA 1: DADOS GERAIS ================= */}
         {activeTab === 'geral' && currentConstruction && (
           <div className="space-y-8 animate-in fade-in">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -373,7 +420,7 @@ export default function ObrasPage() {
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-bold text-gray-700">Responsável Técnico</label>
-                <button onClick={() => openModal('Selecionar Responsável', 'user', (u: any) => { setCurrentConstruction({...currentConstruction, responsibleId: u.id}) })} className="w-full p-3 bg-white border border-gray-200 rounded-xl flex items-center justify-between hover:bg-gray-50 transition-colors text-sm font-semibold text-gray-800 cursor-pointer">
+                <button onClick={() => openModal('Selecionar Responsável', 'user', (u: any) => { setCurrentConstruction({...currentConstruction, responsibleId: u.employeeId || u.id}) })} className="w-full p-3 bg-white border border-gray-200 rounded-xl flex items-center justify-between hover:bg-gray-50 transition-colors text-sm font-semibold text-gray-800 cursor-pointer">
                   <span>ID Resp: {currentConstruction.responsibleId || 'Não definido'}</span>
                   <Search className="w-4 h-4 text-gray-400" />
                 </button>
@@ -397,54 +444,20 @@ export default function ObrasPage() {
                 />
               </div>
             </div>
-
-            <div className="pt-6 border-t border-gray-100">
-              <h3 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-gray-400" /> Localização
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
-                <div className="sm:col-span-3 space-y-1.5">
-                  <label className="text-xs font-semibold text-gray-500 uppercase">CEP</label>
-                  <input type="text" maxLength={8} value={currentConstruction.zipCode} onChange={e => setCurrentConstruction({...currentConstruction, zipCode: e.target.value.replace(/\D/g,'')})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none font-semibold text-gray-800" />
-                </div>
-                <div className="sm:col-span-7 space-y-1.5">
-                  <label className="text-xs font-semibold text-gray-500 uppercase">Rua/Logradouro</label>
-                  <input type="text" value={currentConstruction.street} onChange={e => setCurrentConstruction({...currentConstruction, street: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none font-semibold text-gray-800" />
-                </div>
-                <div className="sm:col-span-2 space-y-1.5">
-                  <label className="text-xs font-semibold text-gray-500 uppercase">Número</label>
-                  <input type="text" value={currentConstruction.number} onChange={e => setCurrentConstruction({...currentConstruction, number: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none font-semibold text-gray-800" />
-                </div>
-                <div className="sm:col-span-5 space-y-1.5">
-                  <label className="text-xs font-semibold text-gray-500 uppercase">Bairro</label>
-                  <input type="text" value={currentConstruction.neighborhood} onChange={e => setCurrentConstruction({...currentConstruction, neighborhood: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none font-semibold text-gray-800" />
-                </div>
-                <div className="sm:col-span-5 space-y-1.5">
-                  <label className="text-xs font-semibold text-gray-500 uppercase">Cidade</label>
-                  <input type="text" value={currentConstruction.city} onChange={e => setCurrentConstruction({...currentConstruction, city: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none font-semibold text-gray-800" />
-                </div>
-                <div className="sm:col-span-2 space-y-1.5">
-                  <label className="text-xs font-semibold text-gray-500 uppercase">UF</label>
-                  <input type="text" maxLength={2} value={currentConstruction.stateAbbreviation} onChange={e => setCurrentConstruction({...currentConstruction, stateAbbreviation: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none text-center font-semibold text-gray-800 uppercase" />
-                </div>
-              </div>
-            </div>
+            
           </div>
         )}
 
-        {/* ABA 2: ETAPAS DE EXECUÇÃO */}
+        {/* ================= ABA 2: ETAPAS DE EXECUÇÃO ================= */}
         {activeTab === 'etapas' && currentConstruction && (
           <div className="space-y-6 animate-in fade-in">
             <div className="flex justify-between items-center">
               <p className="text-sm text-gray-500">Acompanhamento das fases herdadas do orçamento.</p>
-              <button className="flex items-center gap-2 bg-orange-50 text-orange-600 px-4 py-2 rounded-lg font-medium hover:bg-orange-100 transition-colors text-sm cursor-pointer">
-                <Plus className="w-4 h-4" /> Nova Etapa (Extra)
-              </button>
             </div>
 
             <div className="space-y-3">
-              {currentConstruction.stages.map((stage, idx) => (
-                <div key={stage.stageId} className="p-4 border border-gray-100 rounded-xl bg-gray-50/50 flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+              {currentConstruction.stages?.map((stage, idx) => (
+                <div key={stage.stageId || idx} className="p-4 border border-gray-100 rounded-xl bg-gray-50/50 flex flex-col sm:flex-row gap-4 items-start sm:items-center">
                   <div className="flex items-center gap-3 w-24">
                     <span className="text-xs font-bold text-gray-400 bg-white px-2 py-1 border border-gray-100 rounded-md">Ord: {stage.order}</span>
                   </div>
@@ -477,15 +490,15 @@ export default function ObrasPage() {
                   </div>
                 </div>
               ))}
-              {currentConstruction.stages.length === 0 && (
+              {(!currentConstruction.stages || currentConstruction.stages.length === 0) && (
                 <div className="p-8 text-center text-gray-400 italic">Nenhuma etapa vinculada a esta obra.</div>
               )}
             </div>
           </div>
         )}
 
-        {/* ABA 3: EQUIPE ALOCADA (Simulação baseada no JSON) */}
-        {activeTab === 'equipe' && (
+        {/* ================= ABA 3: EQUIPE ALOCADA ================= */}
+        {activeTab === 'equipe' && currentConstruction && (
           <div className="space-y-6 animate-in fade-in">
              <div className="flex justify-between items-center bg-orange-50 p-4 rounded-xl border border-orange-100">
               <div className="flex items-center gap-3">
@@ -497,37 +510,172 @@ export default function ObrasPage() {
                   <p className="text-xs text-gray-500">Vincule funcionários do seu quadro a esta obra.</p>
                 </div>
               </div>
-              <button onClick={() => openModal('Adicionar Funcionário', 'employee', () => {})} className="flex items-center gap-2 bg-white text-orange-600 border border-orange-200 px-4 py-2 rounded-lg font-medium hover:bg-orange-50 transition-colors text-sm shadow-sm cursor-pointer">
-                <Plus className="w-4 h-4" /> Adicionar
+              <button onClick={() => openModal('Adicionar Funcionário', 'employee', (func: any) => {
+                const newEmpAllocation = {
+                  constructionEmployeeId: 0,
+                  employeeId: func.employeeId || func.id,
+                  employee: func 
+                };
+
+                const exists = currentConstruction.employees?.find((e: any) => e.employeeId === newEmpAllocation.employeeId);
+                
+                if(!exists) {
+                  setCurrentConstruction({
+                    ...currentConstruction,
+                    employees: [...(currentConstruction.employees || []), newEmpAllocation]
+                  });
+                }
+              })} className="flex items-center gap-2 bg-white text-orange-600 border border-orange-200 px-4 py-2 rounded-lg font-medium hover:bg-orange-50 transition-colors text-sm shadow-sm cursor-pointer">
+                <Plus className="w-4 h-4" /> Vincular
               </button>
             </div>
-            {currentConstruction?.employees.length === 0 ? (
-               <div className="p-10 text-center text-gray-400">Nenhum funcionário alocado na obra no momento.</div>
+            
+            {(!currentConstruction.employees || currentConstruction.employees.length === 0) ? (
+               <div className="p-10 text-center border-2 border-dashed border-gray-100 rounded-xl text-gray-400 font-medium">Nenhum funcionário alocado na obra no momento.</div>
             ) : (
                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                 {/* Mapeamento de employees virá aqui quando o endpoint alimentar o array */}
+                 {currentConstruction.employees.map((emp: any, idx: number) => (
+                    <div key={idx} className="p-4 border border-gray-100 rounded-xl bg-white flex items-center justify-between group hover:border-orange-200 transition-colors">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500">
+                          <User className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-gray-800 text-sm">{emp.employee?.employeeName || emp.employeeName || emp.name}</p>
+                          <p className="text-xs text-gray-500">{emp.employee?.email || emp.email || `ID: ${emp.employeeId}`}</p>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => {
+                          const newEmp = currentConstruction.employees.filter((_, i) => i !== idx);
+                          setCurrentConstruction({...currentConstruction, employees: newEmp});
+                        }}
+                        className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer p-2"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                 ))}
                </div>
             )}
           </div>
         )}
 
-        {/* ABA 4: EQUIPAMENTOS (RENTALS) */}
-        {activeTab === 'equipamentos' && (
+        {/* ================= ABA 4: FINANCEIRO ================= */}
+        {activeTab === 'financeiro' && currentConstruction && (
           <div className="space-y-6 animate-in fade-in">
-            <div className="flex justify-between items-center">
-              <p className="text-sm text-gray-500">Controle de locações, maquinário e diárias.</p>
-              <button className="flex items-center gap-2 bg-gray-900 text-white px-4 py-2 rounded-lg font-medium hover:bg-gray-800 transition-colors text-sm cursor-pointer">
-                <Plus className="w-4 h-4" /> Novo Aluguel
-              </button>
+             <div className="flex justify-between items-center bg-emerald-50 p-4 rounded-xl border border-emerald-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
+                  <DollarSign className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-gray-800">Contas a Receber desta Obra</h4>
+                  <p className="text-xs text-gray-500">Acompanhe as parcelas vinculadas ao financeiro.</p>
+                </div>
+              </div>
             </div>
-            
-            {currentConstruction?.rentals.length === 0 ? (
-              <div className="p-10 text-center border-2 border-dashed border-gray-100 rounded-xl text-gray-400">
-                Nenhum equipamento alugado registrado.
+
+            {(!currentConstruction.payments || currentConstruction.payments.length === 0) ? (
+              <div className="p-10 text-center border-2 border-dashed border-gray-100 rounded-xl text-gray-400 font-medium">
+                Nenhum pagamento registrado no sistema para esta obra.
               </div>
             ) : (
               <div className="overflow-x-auto border border-gray-100 rounded-xl">
-                {/* Tabela de rentals */}
+                <table className="w-full text-left text-sm border-collapse">
+                  <thead className="bg-gray-50 border-b border-gray-100">
+                    <tr>
+                      <th className="p-4 font-semibold text-gray-500 uppercase text-xs tracking-wider">Data do Pagamento</th>
+                      <th className="p-4 font-semibold text-gray-500 uppercase text-xs tracking-wider text-center">Tipo (ID)</th>
+                      <th className="p-4 font-semibold text-gray-500 uppercase text-xs tracking-wider text-center">Etapa (ID)</th>
+                      <th className="p-4 font-semibold text-gray-500 uppercase text-xs tracking-wider text-right">Valor (R$)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {currentConstruction.payments.map((pay: any, idx: number) => (
+                      <tr key={idx} className="hover:bg-gray-50/50">
+                        <td className="p-4 text-gray-800 font-medium">{pay.paymentDate ? new Date(pay.paymentDate).toLocaleDateString('pt-BR') : '-'}</td>
+                        <td className="p-4 text-gray-600 text-center">{pay.paymentTypeId || 'N/A'}</td>
+                        <td className="p-4 text-gray-600 text-center">{pay.stageId || 'Geral'}</td>
+                        <td className="p-4 font-bold text-emerald-600 text-right">{pay.paymentValue?.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ================= ABA 5: ARQUIVOS / ANEXOS ================= */}
+        {activeTab === 'anexos' && currentConstruction && (
+          <div className="space-y-6 animate-in fade-in">
+             <div className="flex justify-between items-center bg-blue-50 p-4 rounded-xl border border-blue-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+                  <Paperclip className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-gray-800">Documentação e Anexos</h4>
+                  <p className="text-xs text-gray-500">Plantas, ARTs, alvarás e imagens atrelados à obra.</p>
+                </div>
+              </div>
+              <div>
+                <input 
+                  type="file" 
+                  ref={fileInputRef} 
+                  onChange={handleFileUpload} 
+                  className="hidden" 
+                />
+                <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors text-sm shadow-sm cursor-pointer">
+                  <UploadCloud className="w-4 h-4" /> Fazer Upload
+                </button>
+              </div>
+            </div>
+
+            {(!currentConstruction.attachments || currentConstruction.attachments.length === 0) ? (
+              <div className="p-16 flex flex-col items-center justify-center border-2 border-dashed border-gray-200 rounded-2xl bg-gray-50/50">
+                 <UploadCloud size={40} className="text-gray-300 mb-4" />
+                 <p className="text-gray-500 font-medium">Nenhum arquivo anexado nesta obra.</p>
+                 <p className="text-xs text-gray-400 mt-1">Clique em "Fazer Upload" para adicionar PDFs, Imagens ou Planilhas.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                 {currentConstruction.attachments.map((file: any, idx: number) => (
+                    <div key={idx} className="p-4 border border-gray-200 rounded-xl bg-white flex items-center justify-between group hover:border-blue-200 hover:shadow-md transition-all">
+                      <div className="flex items-center gap-3 overflow-hidden">
+                        <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                          <FileText size={20} />
+                        </div>
+                        <div className="overflow-hidden">
+                          <p className="font-semibold text-gray-800 text-sm truncate" title={file.description}>{file.description}</p>
+                          <p className="text-xs text-blue-500 mt-0.5 truncate cursor-pointer hover:underline">{file.imageUrl || 'Sem URL'}</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-1 shrink-0 ml-2">
+                        {/* BOTÃO DE VISUALIZAR / BAIXAR */}
+                        {file.imageUrl && (
+                          <a 
+                            href={file.imageUrl} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer flex items-center justify-center" 
+                            title="Visualizar Arquivo"
+                          >
+                             <Eye size={16} />
+                          </a>
+                        )}
+                        <button 
+                          onClick={() => {
+                            const newFiles = currentConstruction.attachments.filter((_, i) => i !== idx);
+                            setCurrentConstruction({...currentConstruction, attachments: newFiles});
+                          }}
+                          className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer" title="Remover">
+                           <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                 ))}
               </div>
             )}
           </div>
@@ -535,7 +683,7 @@ export default function ObrasPage() {
 
       </div>
 
-      {/* RENDERIZAÇÃO DO MODAL EXCLUSIVO DESSA TELA */}
+      {/* RENDERIZAÇÃO DO MODAL DE SELEÇÃO DINÂMICO */}
       {isSelectionModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh] animate-in zoom-in-95">
@@ -549,15 +697,35 @@ export default function ObrasPage() {
               <div className="relative">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input 
-                  type="text" placeholder="Buscar..." value={modalSearchQuery} onChange={(e) => setModalSearchQuery(e.target.value)}
+                  type="text" placeholder="Pesquisar..." value={modalSearchQuery} onChange={(e) => setModalSearchQuery(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500/20 focus:bg-white transition-all outline-none text-sm font-semibold text-gray-700"
                 />
               </div>
             </div>
             <div className="overflow-y-auto flex-1 p-2">
-              <div className="p-8 text-center text-gray-500 text-sm italic">
-                Nenhum registro encontrado (Integração de busca dependente da API).
-              </div>
+              {(modalConfig.type === 'employee' ? allEmployees : []).filter((item: any) => 
+                (item.employeeName || item.name || '').toLowerCase().includes(modalSearchQuery.toLowerCase())
+              ).map((item: any, idx: number) => (
+                <button 
+                  key={idx}
+                  onClick={() => { modalConfig.onSelect(item); setIsSelectionModalOpen(false); }}
+                  className="w-full flex items-center gap-4 p-4 hover:bg-orange-50 rounded-xl cursor-pointer transition-colors group text-left"
+                >
+                  <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 group-hover:bg-orange-100 group-hover:text-orange-600 transition-colors">
+                    {modalConfig.type === 'employee' ? <User className="w-5 h-5" /> : <Users className="w-5 h-5" />}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-gray-800 text-sm">{item.employeeName || item.name}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{item.email || item.position || `ID: ${item.employeeId || item.id}`}</p>
+                  </div>
+                </button>
+              ))}
+
+              {modalConfig.type === 'employee' && allEmployees.length === 0 && (
+                <div className="p-8 text-center text-gray-500 text-sm italic">
+                  Nenhum funcionário cadastrado na empresa.
+                </div>
+              )}
             </div>
           </div>
         </div>

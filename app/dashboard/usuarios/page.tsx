@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   UserPlus, ShieldCheck, CheckCircle2, ChevronRight, X, 
   UserCog, User, Mail, Lock, EyeOff, Eye, BadgeCheck, 
   ChevronDown, ShieldAlert, Save, Edit2, Loader2, ToggleLeft,
-  AlertTriangle, CheckCircle
+  AlertTriangle, CheckCircle, Check
 } from 'lucide-react';
 import api from '@/services/api';
 
@@ -13,7 +13,8 @@ import api from '@/services/api';
 // 📊 INTERFACES E DTOs
 // ========================================================
 interface SystemUser {
-  id: number;
+  userId?: number;
+  id?: number;
   username: string;
   email: string;
   admin: number;
@@ -39,7 +40,6 @@ export default function UsuariosPage() {
   const [companyId, setCompanyId] = useState<number | null>(null);
   const [editingUserId, setEditingUserId] = useState<number | null>(null);
 
-  // Estados de Validação e Feedback Visual
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
@@ -50,6 +50,21 @@ export default function UsuariosPage() {
     admin: 0,
     status: 1 
   });
+
+  // Estado para controlar o Custom Select do nível de acesso
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Fecha o dropdown se clicar fora dele
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   useEffect(() => {
     const sessionData = sessionStorage.getItem('enger_user');
@@ -74,7 +89,30 @@ export default function UsuariosPage() {
     }
   };
 
-  // 🧠 VALIDAÇÃO FRONTEND (Evita chamadas desnecessárias à API)
+  const getRoleName = (level: number) => {
+    switch (level) {
+      case 7: return 'Master (Dono)';
+      case 6: return 'Especial (Owner)';
+      case 5: return 'Gestor (Eng/Arq)';
+      case 4: return 'Encarregado (Fiscal)';
+      case 3: return 'Administrador';
+      case 2: return 'Fiscal / Sub.';
+      case 1: return 'Colaborador';
+      default: return 'Selecione um nível...';
+    }
+  };
+
+  // Lista de opções para o Custom Select
+  const roleOptions = [
+    { value: 7, label: '7 - Master (Dono do Site)' },
+    { value: 6, label: '6 - Especial (Dono da Empresa)' },
+    { value: 5, label: '5 - Gestor (Engenheiro/Arquiteto)' },
+    { value: 4, label: '4 - Encarregado (Fiscal de Obra)' },
+    { value: 3, label: '3 - Administrador (Geral/Obra)' },
+    { value: 2, label: '2 - Fiscal (Sub-encarregado)' },
+    { value: 1, label: '1 - Colaborador (Operacional)' }
+  ];
+
   const validateForm = (): boolean => {
     const errors: Record<string, string> = {};
 
@@ -85,9 +123,7 @@ export default function UsuariosPage() {
     if (!userForm.email.trim()) errors.email = "O e-mail é obrigatório.";
     else if (!emailRegex.test(userForm.email)) errors.email = "Insira um formato de e-mail válido.";
 
-    // O C# exige a senha tanto no Create quanto no Update
-    if (!userForm.password) errors.password = "A senha é obrigatória.";
-    else if (userForm.password.length > 60) errors.password = "A senha não pode exceder 60 caracteres.";
+    if (userForm.password.length > 60) errors.password = "A senha não pode exceder 60 caracteres.";
 
     if (userForm.admin === 0 || userForm.admin > 7) errors.admin = "Selecione um nível de acesso válido.";
 
@@ -98,15 +134,8 @@ export default function UsuariosPage() {
   const handleSaveUser = async () => {
     setFeedbackMsg(null);
     
-    if (!companyId) {
-      setFeedbackMsg({ type: 'error', text: "Erro interno: Identificador da empresa não encontrado." });
-      return;
-    }
-
-    if (!validateForm()) {
-      setFeedbackMsg({ type: 'error', text: "Verifique os campos destacados em vermelho." });
-      return;
-    }
+    if (!companyId) return setFeedbackMsg({ type: 'error', text: "Erro interno: Identificador da empresa não encontrado." });
+    if (!validateForm()) return setFeedbackMsg({ type: 'error', text: "Verifique os campos destacados em vermelho." });
 
     setIsSubmitting(true);
 
@@ -122,7 +151,6 @@ export default function UsuariosPage() {
       resetForm();
       fetchUsers(companyId);
       
-      // Retorna para a lista após 2 segundos para o usuário ver o sucesso
       setTimeout(() => {
         setUserView('list');
         setFeedbackMsg(null);
@@ -130,12 +158,9 @@ export default function UsuariosPage() {
 
     } catch (error: any) {
       const apiErrors = error.response?.data?.errors;
-      
-      // 🧠 CAPTURA DE ERROS DO C# (ex: Email já cadastrado)
       if (apiErrors && Array.isArray(apiErrors)) {
         const backendErrors: Record<string, string> = {};
         apiErrors.forEach((err: any) => {
-          // O C# retorna field e message
           const fieldName = (err.field || err.Field || '').toLowerCase();
           backendErrors[fieldName] = err.message || err.Message;
         });
@@ -155,11 +180,11 @@ export default function UsuariosPage() {
     setUserForm({
       username: user.username,
       email: user.email,
-      password: '', // Força o usuário a redigitar a senha no update, conforme regra do seu C#
+      password: '',
       admin: user.admin,
       status: user.status ?? 1
     });
-    setEditingUserId(user.id);
+    setEditingUserId(user.userId || user.id || null);
     setUserView('create');
   };
 
@@ -183,7 +208,7 @@ export default function UsuariosPage() {
           </div>
           <button 
             onClick={() => { resetForm(); setUserView('create'); }}
-            className="bg-orange-600 hover:bg-orange-700 text-white px-6 py-3 rounded-2xl font-bold text-sm shadow-lg shadow-orange-600/20 flex items-center justify-center gap-2 transition-all active:scale-95"
+            className="bg-orange-600 hover:bg-orange-700 text-white px-6 py-3 rounded-2xl font-bold text-sm shadow-lg shadow-orange-600/20 flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer"
           >
             <UserPlus size={18} /> Novo Usuário
           </button>
@@ -209,7 +234,7 @@ export default function UsuariosPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {users.map((user) => (
-                    <tr key={user.id} className="hover:bg-orange-50/30 transition-colors group">
+                    <tr key={user.userId || user.id} className="hover:bg-orange-50/30 transition-colors group">
                       <td className="px-8 py-5">
                         <div className="flex items-center gap-4">
                           <div className="w-10 h-10 bg-gray-100 text-gray-500 rounded-xl flex items-center justify-center font-bold group-hover:bg-orange-600 group-hover:text-white transition-all">
@@ -222,7 +247,7 @@ export default function UsuariosPage() {
                       <td className="px-8 py-5">
                         <div className="flex items-center gap-2 text-xs font-semibold text-orange-600 bg-orange-50 px-3 py-1.5 rounded-full w-fit">
                           <ShieldCheck size={14} />
-                          {user.admin === 1 ? 'Master' : user.admin === 2 ? 'Gerente' : user.admin === 3 ? 'Financeiro' : 'Operador'}
+                          {getRoleName(user.admin)}
                         </div>
                       </td>
                       <td className="px-8 py-5">
@@ -233,7 +258,7 @@ export default function UsuariosPage() {
                       <td className="px-8 py-5 text-right">
                         <button 
                           onClick={() => handleEditClick(user)}
-                          className="p-2 text-gray-300 hover:text-orange-600 hover:bg-white rounded-xl transition-all"
+                          className="p-2 text-gray-300 hover:text-orange-600 hover:bg-white rounded-xl transition-all cursor-pointer"
                           title="Editar Usuário"
                         >
                           <Edit2 size={18} />
@@ -261,7 +286,6 @@ export default function UsuariosPage() {
   return (
     <div className="max-w-5xl mx-auto space-y-8 animate-in slide-in-from-bottom-4 duration-500">
       
-      {/* 🚀 BANNER DE FEEDBACK VISUAL NO TOPO */}
       {feedbackMsg && (
         <div className={`p-4 rounded-2xl flex items-center gap-3 font-bold text-sm shadow-sm ${feedbackMsg.type === 'success' ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-red-50 text-red-600 border border-red-100 animate-[shake_0.4s_ease-in-out]'}`}>
           {feedbackMsg.type === 'success' ? <CheckCircle size={20} /> : <AlertTriangle size={20} />}
@@ -270,7 +294,7 @@ export default function UsuariosPage() {
       )}
 
       <div className="flex items-center justify-between border-b border-gray-100 pb-6">
-        <button onClick={() => { setUserView('list'); resetForm(); }} className="flex items-center gap-2 text-gray-400 hover:text-gray-800 font-bold text-sm transition-colors group">
+        <button onClick={() => { setUserView('list'); resetForm(); }} className="flex items-center gap-2 text-gray-400 hover:text-gray-800 font-bold text-sm transition-colors group cursor-pointer">
           <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center group-hover:bg-gray-200 transition-colors">
             <ChevronRight size={16} className="rotate-180" />
           </div> 
@@ -279,7 +303,7 @@ export default function UsuariosPage() {
         <button 
           onClick={handleSaveUser}
           disabled={isSubmitting}
-          className="bg-orange-600 text-white px-8 py-3.5 rounded-2xl font-bold text-sm shadow-xl shadow-orange-600/20 flex items-center gap-2 hover:bg-orange-700 transition-all disabled:bg-gray-300"
+          className="bg-orange-600 text-white px-8 py-3.5 rounded-2xl font-bold text-sm shadow-xl shadow-orange-600/20 flex items-center gap-2 hover:bg-orange-700 transition-all disabled:bg-gray-300 cursor-pointer"
         >
           {isSubmitting ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
           {editingUserId ? 'Salvar Alterações' : 'Criar Usuário'}
@@ -299,7 +323,7 @@ export default function UsuariosPage() {
             <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Status da Conta</label>
             <button 
               onClick={() => setUserForm({...userForm, status: userForm.status === 1 ? 0 : 1})}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition-colors ${userForm.status === 1 ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition-colors cursor-pointer ${userForm.status === 1 ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}
             >
               <ToggleLeft size={16} className={userForm.status === 1 ? 'rotate-180 text-green-600' : ''} /> 
               {userForm.status === 1 ? 'Conta Ativa' : 'Conta Inativa'}
@@ -359,7 +383,7 @@ export default function UsuariosPage() {
               />
               <button 
                 type="button" onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-6 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-600 transition-colors"
+                className="absolute right-6 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-600 transition-colors cursor-pointer"
               >
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
@@ -367,26 +391,41 @@ export default function UsuariosPage() {
             {fieldErrors.password && <p className="text-[11px] font-bold text-red-500 mt-2 ml-2">{fieldErrors.password}</p>}
           </div>
 
-          <div className="group">
+          <div className="group relative" ref={dropdownRef}>
             <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Nível de Acesso *</label>
-            <div className="relative">
-              <BadgeCheck className={`absolute left-6 top-1/2 -translate-y-1/2 transition-colors ${fieldErrors.admin ? 'text-red-400' : 'text-gray-300 group-focus-within:text-orange-500'}`} size={18} />
-              <select 
-                className={`w-full pl-14 pr-6 py-4 bg-gray-50 border rounded-2xl focus:bg-white outline-none transition-all text-sm font-semibold text-gray-800 appearance-none ${fieldErrors.admin ? 'border-red-300 focus:border-red-500 bg-red-50/30' : 'border-transparent focus:border-orange-500'}`}
-                value={userForm.admin} 
-                onChange={(e) => {
-                  setUserForm({...userForm, admin: parseInt(e.target.value, 10)});
-                  if (fieldErrors.admin) setFieldErrors({...fieldErrors, admin: ''});
-                }}
-              >
-                <option value={0}>Selecione um nível...</option>
-                <option value={1}>1 - Master (Acesso Total)</option>
-                <option value={2}>2 - Gerente de Obras</option>
-                <option value={3}>3 - Operador Financeiro</option>
-                <option value={4}>4 - Visualizador (Somente Leitura)</option>
-              </select>
-              <ChevronDown className="absolute right-6 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" size={18} />
+            <div 
+              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+              className={`w-full pl-14 pr-6 py-4 bg-gray-50 border rounded-2xl outline-none transition-all text-sm font-semibold text-gray-800 cursor-pointer flex items-center justify-between ${isDropdownOpen ? 'bg-white border-orange-500 ring-4 ring-orange-500/10' : 'border-transparent'} ${fieldErrors.admin ? 'border-red-300 bg-red-50/30' : ''}`}
+            >
+              <BadgeCheck className={`absolute left-6 top-1/2 -translate-y-1/2 transition-colors ${fieldErrors.admin ? 'text-red-400' : isDropdownOpen ? 'text-orange-500' : 'text-gray-300'}`} size={18} />
+              
+              <span className={userForm.admin === 0 ? "text-gray-400" : "text-gray-800"}>
+                {getRoleName(userForm.admin)}
+              </span>
+
+              <ChevronDown className={`text-gray-400 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180 text-orange-500' : ''}`} size={18} />
             </div>
+
+            {/* Menu Flutuante Customizado */}
+            {isDropdownOpen && (
+              <div className="absolute top-full left-0 w-full mt-2 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200 max-h-60 overflow-y-auto">
+                {roleOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => {
+                      setUserForm({ ...userForm, admin: option.value });
+                      if (fieldErrors.admin) setFieldErrors({...fieldErrors, admin: ''});
+                      setIsDropdownOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-orange-50 transition-colors text-sm font-semibold text-gray-700 cursor-pointer group"
+                  >
+                    <span className="group-hover:text-orange-700">{option.label}</span>
+                    {userForm.admin === option.value && <Check size={16} className="text-orange-600" />}
+                  </button>
+                ))}
+              </div>
+            )}
+            
             {fieldErrors.admin && <p className="text-[11px] font-bold text-red-500 mt-2 ml-2">{fieldErrors.admin}</p>}
           </div>
         </div>

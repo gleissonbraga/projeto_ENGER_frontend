@@ -4,17 +4,19 @@ import React, { useState, useEffect } from "react";
 import {
   CheckCircle,
   ArrowRight,
-  Buildings,
+  Building2,   // Substitui o Buildings
   HardHat,
-  ChartLineUp,
-  List,
-  SignIn,
+  TrendingUp,  // Substitui o ChartLineUp
+  Menu,        // Substitui o List
+  LogIn,       // Substitui o SignIn
   X,
-} from "@phosphor-icons/react";
+  LogOut,
+  List
+} from "lucide-react";
 import api from "@/services/api";
 import { useRouter } from 'next/navigation';
 import Link from "next/link";
-import { jwtDecode } from "jwt-decode"; // 🚀 NOVO: Decodificador de Token
+import { jwtDecode } from "jwt-decode"; 
 
 export type SubscriptionType = {
   subscriptionTypeId: number;
@@ -38,6 +40,18 @@ export default function EngerHome() {
   const [senha, setSenha] = useState("");
   const router = useRouter();
 
+  // Estados de Usuário para a Navbar
+  const [user, setUser] = useState<{ userName: string; companyId: number } | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    const sessionData = sessionStorage.getItem('enger_user');
+    if (sessionData) {
+      setUser(JSON.parse(sessionData));
+    }
+  }, []);
+
   useEffect(() => {
     const carregarDados = async () => {
       try {
@@ -59,13 +73,22 @@ export default function EngerHome() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  const handleLogout = () => {
+    sessionStorage.removeItem('enger_user');
+    setUser(null);
+    window.location.reload(); 
+  };
+
+  const getInitials = (name: string) => {
+    return name ? name.substring(0, 2).toUpperCase() : 'US';
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
 
     try {
-      // 1. Faz o login. Sua API C# já injeta o cookie HttpOnly de autenticação aqui!
       const response = await api.post("/login", {
         email,
         password: senha, 
@@ -75,33 +98,21 @@ export default function EngerHome() {
 
       const { expirationDate } = response.data;
 
-      console.log("Sucesso Login Inicial:", response.data);
-
-      // 2. CHAMADA CRÍTICA: Busca os dados reais do usuário logado através do seu endpoint /auth/me
       const responseLogin = await api.get('/auth/me', { withCredentials: true });
-      console.log("Dados do Usuário (/auth/me):", responseLogin.data);
+      
+      const { userName, companyId, adminLevel, subscriptionTypeId, userId } = responseLogin.data;
 
-      // Desestruturamos os dados vindos direto do seu objeto do C#
-      // (adminLevel, companyId, expirationDate, subscriptionTypeId)
-      const { userName, companyId, adminLevel, subscriptionTypeId } = responseLogin.data;
-
-      // 3. Injeta os cookies locais que o seu Middleware e Dashboard precisam ler
       document.cookie = "EngerAuthToken=true; path=/; max-age=86400; SameSite=Lax";
       document.cookie = `admin_level=${adminLevel || 0}; path=/; max-age=86400; SameSite=Lax`;
 
-      // 4. Guarda na sessão para uso visual das telas internas
       sessionStorage.setItem('enger_user', JSON.stringify({
         userName,
         companyId,
         adminLevel,
-        expirationDate
+        expirationDate,
+        userId
       }));
 
-      // ========================================================
-      // 🧠 FLUXO DE REDIRECIONAMENTO COM BASE NAS RESPOSTAS DA API
-      // ========================================================
-
-      // CASO A: Usuário não possui nenhuma empresa vinculada (Manda para o pagamento comum)
       if (!companyId) {
         document.cookie = "enger_cadastro_pendente=true; path=/; max-age=900; SameSite=Lax";
         setIsLoginOpen(false);
@@ -109,18 +120,15 @@ export default function EngerHome() {
         return;
       }
 
-      // CASO B: Possui empresa, vamos validar se a data de expiração passou
       if (expirationDate) {
         const dataExpiracao = new Date(expirationDate);
         const agora = new Date();
 
         if (dataExpiracao < agora) {
-          // Salva o ID do plano que ele usava para a tela /assinatura pré-selecionar
           if (subscriptionTypeId) {
             sessionStorage.setItem('enger_plano_anterior_id', subscriptionTypeId.toString());
           }
 
-          // Ativa as travas lidas pelo seu Middleware
           document.cookie = "enger_cadastro_pendente=true; path=/; max-age=900; SameSite=Lax";
           document.cookie = "enger_assinatura_expirada=true; path=/; max-age=86400; SameSite=Lax";
           
@@ -130,7 +138,6 @@ export default function EngerHome() {
         }
       }
 
-      // CASO C: Conta ativa e tudo em dia! Limpa travas de expiração e vai pro painel
       document.cookie = "enger_assinatura_expirada=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
       setIsLoginOpen(false);
       window.location.href = "/dashboard";
@@ -157,6 +164,7 @@ export default function EngerHome() {
 
   return (
     <main className="min-h-screen bg-white text-zinc-900 font-sans overflow-x-hidden">
+      
       {/* MODAL DE LOGIN */}
       {isLoginOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-zinc-900/60 backdrop-blur-sm p-4 animate-[fadeIn_0.3s_ease-out]">
@@ -232,7 +240,7 @@ export default function EngerHome() {
                 className="w-full bg-zinc-900 hover:bg-zinc-800 text-white font-bold py-3.5 rounded-lg transition-all mt-4 flex justify-center items-center gap-2 cursor-pointer disabled:bg-zinc-400"
               >
                 {loading ? "Carregando..." : "Entrar no Sistema"}
-                {!loading && <SignIn size={20} weight="bold" />}
+                {!loading && <LogIn size={20} />}
               </button>
             </form>
           </div>
@@ -255,22 +263,55 @@ export default function EngerHome() {
             <a href="#planos" className="hover:text-orange-500 transition-colors">
               Planos
             </a>
-            <button
-              className="text-zinc-900 hover:text-orange-500 font-bold transition-colors cursor-pointer"
-              onClick={() => setIsLoginOpen(true)}
-            >
-              Fazer Login
-            </button>
-            <Link href="/cadastro" className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2.5 rounded-lg font-bold transition-all hover:shadow-[0_0_20px_rgba(249,115,22,0.4)] cursor-pointer">
-              Assinar Agora
-            </Link>
+            
+            {mounted ? (
+              user ? (
+                <div className="flex items-center gap-2">
+                  <Link 
+                    href="/dashboard"
+                    className="flex items-center gap-3 pl-3 pr-5 py-2 hover:bg-orange-50 border border-gray-100 hover:border-orange-100 rounded-2xl transition-all cursor-pointer group bg-white shadow-sm"
+                  >
+                    <div className="w-9 h-9 rounded-xl bg-orange-100 border border-orange-200 flex items-center justify-center text-orange-700 font-black text-sm group-hover:bg-orange-600 group-hover:text-white transition-colors shadow-sm">
+                      {getInitials(user.userName)}
+                    </div>
+                    
+                    <div className="text-left hidden sm:block">
+                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest leading-none">Acessar Sistema</p>
+                      <p className="text-sm font-bold text-gray-800 mt-1 leading-none group-hover:text-orange-700 transition-colors">{user.userName}</p>
+                    </div>
+                  </Link>
+
+                  <button 
+                    onClick={handleLogout}
+                    title="Sair da conta"
+                    className="p-2.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all cursor-pointer bg-white shadow-sm border border-gray-100"
+                  >
+                    <LogOut size={18} />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <button
+                    className="text-zinc-900 hover:text-orange-500 font-bold transition-colors cursor-pointer"
+                    onClick={() => setIsLoginOpen(true)}
+                  >
+                    Fazer Login
+                  </button>
+                  <Link href="/cadastro" className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2.5 rounded-lg font-bold transition-all hover:shadow-[0_0_20px_rgba(249,115,22,0.4)] cursor-pointer">
+                    Assinar Agora
+                  </Link>
+                </>
+              )
+            ) : (
+              <div className="w-24 h-10 bg-gray-100 animate-pulse rounded-lg"></div>
+            )}
           </div>
 
           <button
             className="md:hidden text-zinc-900"
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
           >
-            {isMobileMenuOpen ? <X size={28} /> : <List size={28} />}
+            {isMobileMenuOpen ? <X size={28} /> : <Menu size={28} />}
           </button>
         </div>
 
@@ -282,12 +323,21 @@ export default function EngerHome() {
             <a href="#planos" className="text-zinc-600 font-medium">
               Planos
             </a>
-            <button onClick={() => { setIsMobileMenuOpen(false); setIsLoginOpen(true); }} className="text-left text-zinc-900 font-bold">
-              Fazer Login
-            </button>
-            <button className="bg-orange-500 text-white px-6 py-3 rounded-lg font-bold mt-2">
-              Assinar Agora
-            </button>
+            {user ? (
+               <>
+                 <Link href="/dashboard" className="text-left text-zinc-900 font-bold">Acessar Sistema</Link>
+                 <button onClick={handleLogout} className="text-left text-red-600 font-bold">Sair da Conta</button>
+               </>
+            ) : (
+               <>
+                 <button onClick={() => { setIsMobileMenuOpen(false); setIsLoginOpen(true); }} className="text-left text-zinc-900 font-bold">
+                   Fazer Login
+                 </button>
+                 <button className="bg-orange-500 text-white px-6 py-3 rounded-lg font-bold mt-2">
+                   Assinar Agora
+                 </button>
+               </>
+            )}
           </div>
         )}
       </nav>
@@ -314,9 +364,15 @@ export default function EngerHome() {
           </p>
 
           <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/cadastro" className="bg-zinc-900 hover:bg-zinc-800 text-white px-8 py-4 rounded-lg font-bold flex items-center justify-center gap-2 transition-all hover:scale-105 cursor-pointer">
-              Começar Teste Grátis <ArrowRight weight="bold" />
-            </Link>
+            {user ? (
+              <Link href="/dashboard" className="bg-orange-600 hover:bg-orange-700 text-white px-8 py-4 rounded-lg font-bold flex items-center justify-center gap-2 transition-all hover:scale-105 cursor-pointer">
+                Acessar meu Dashboard <ArrowRight />
+              </Link>
+            ) : (
+              <Link href="/cadastro" className="bg-zinc-900 hover:bg-zinc-800 text-white px-8 py-4 rounded-lg font-bold flex items-center justify-center gap-2 transition-all hover:scale-105 cursor-pointer">
+                Começar Teste Grátis <ArrowRight />
+              </Link>
+            )}
           </div>
         </div>
       </section>
@@ -336,7 +392,7 @@ export default function EngerHome() {
           <div className="grid md:grid-cols-3 gap-8">
             <div className="bg-white p-8 rounded-2xl shadow-sm border border-zinc-100 hover:shadow-lg transition-all group">
               <div className="w-14 h-14 bg-orange-100 text-orange-500 rounded-xl flex items-center justify-center mb-6">
-                <Buildings size={32} weight="duotone" />
+                <Building2 size={32} />
               </div>
               <h3 className="text-xl font-bold text-zinc-900 mb-3">Orçamentos Precisos</h3>
               <p className="text-zinc-500 leading-relaxed">
@@ -346,7 +402,7 @@ export default function EngerHome() {
 
             <div className="bg-white p-8 rounded-2xl shadow-sm border border-zinc-100 hover:shadow-lg transition-all group">
               <div className="w-14 h-14 bg-zinc-100 text-zinc-900 rounded-xl flex items-center justify-center mb-6">
-                <HardHat size={32} weight="duotone" />
+                <HardHat size={32} />
               </div>
               <h3 className="text-xl font-bold text-zinc-900 mb-3">Gestão de Equipes</h3>
               <p className="text-zinc-500 leading-relaxed">
@@ -356,7 +412,7 @@ export default function EngerHome() {
 
             <div className="bg-white p-8 rounded-2xl shadow-sm border border-zinc-100 hover:shadow-lg transition-all group">
               <div className="w-14 h-14 bg-orange-100 text-orange-500 rounded-xl flex items-center justify-center mb-6">
-                <ChartLineUp size={32} weight="duotone" />
+                <TrendingUp size={32} />
               </div>
               <h3 className="text-xl font-bold text-zinc-900 mb-3">Controle Financeiro</h3>
               <p className="text-zinc-500 leading-relaxed">
