@@ -96,6 +96,9 @@ export default function OrcamentosPage() {
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [selectedUser, setSelectedUser] = useState<Employee | null>(null);
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  
+  // 🚀 NOVO: Estado de validação de campos
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const initialFormState: BudgetFormState = {
     status: 12, // BudPending
@@ -119,7 +122,6 @@ export default function OrcamentosPage() {
 
   const [budgetForm, setBudgetForm] = useState<BudgetFormState>(initialFormState);
   
-  // TRAVA DE SEGURANÇA: Só permite edição se o status for 12 (Pendente)
   const isReadOnly = budgetForm.status !== 12;
 
   // ========================================================
@@ -155,12 +157,32 @@ export default function OrcamentosPage() {
     }
   };
 
+  // 🚀 NOVO: Validação rígida antes de salvar
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {};
+
+    if (!budgetForm.clientId) errors.client = "Obrigatório.";
+    if (!budgetForm.userId) errors.user = "Obrigatório.";
+    if (!budgetForm.description.trim()) errors.description = "A descrição do orçamento é obrigatória.";
+    
+    if (!budgetForm.zipCode.trim()) errors.zipCode = "Obrigatório";
+    if (!budgetForm.street.trim()) errors.street = "Obrigatório";
+    if (!budgetForm.neighborhood.trim()) errors.neighborhood = "Obrigatório";
+    if (!budgetForm.city.trim()) errors.city = "Obrigatório";
+    if (!budgetForm.stateAbbreviation.trim()) errors.stateAbbreviation = "Obrigatório";
+
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleSaveBudget = async () => {
     setFeedbackMsg(null);
+    setFieldErrors({});
+
     if (!companyId) return setFeedbackMsg({ type: 'error', text: "ID da empresa não encontrado." });
 
-    if (!budgetForm.clientId || !budgetForm.userId || !budgetForm.description) {
-      setFeedbackMsg({ type: 'error', text: "Preencha a Descrição, Cliente e Responsável Técnico." });
+    if (!validateForm()) {
+      setFeedbackMsg({ type: 'error', text: "Verifique os campos destacados em vermelho." });
       return;
     }
 
@@ -191,11 +213,10 @@ export default function OrcamentosPage() {
       if (budgetForm.id) {
         await api.put(`/orcamento/${companyId}/${budgetForm.id}`, payload, {withCredentials: true});
         setFeedbackMsg({ type: 'success', text: "Orçamento atualizado com sucesso!" });
-
       } else {
         await api.post(`/orcamento/${companyId}`, payload, {withCredentials: true});
         setFeedbackMsg({ type: 'success', text: "Orçamento criado e e-mail enviado com sucesso!" });
-        window.scrollTo({ top: 0, behavior: 'smooth' })
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       }
 
       setTimeout(() => {
@@ -206,16 +227,24 @@ export default function OrcamentosPage() {
 
     } catch (error: any) {
       setFeedbackMsg({ type: 'error', text: "Erro ao salvar orçamento. Verifique os dados inseridos." });
+      
+      // 🚀 Lida com os erros retornados pela API (ex: Validation.InputRequired)
+      const apiErrors = error.response?.data?.errors;
+      if (apiErrors && Array.isArray(apiErrors)) {
+        const backendErrors: Record<string, string> = {};
+        apiErrors.forEach((err: any) => {
+          const fieldName = (err.field || err.Field || '').toLowerCase();
+          backendErrors[fieldName] = err.message || err.Message;
+        });
+        setFieldErrors(prev => ({...prev, ...backendErrors}));
+      }
+      
       console.error(error.response?.data?.errors || error);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // ========================================================
-  // ⚙️ LÓGICAS DE INTERFACE E CORREÇÃO DOS BUGS
-  // ========================================================
-  
   const parseStatus = (statusInfo: any): number => {
     if (statusInfo === 12 || statusInfo === 'BudPending' || statusInfo === 'Pending') return 12;
     if (statusInfo === 13 || statusInfo === 'BudApproved' || statusInfo === 'Approved') return 13;
@@ -225,16 +254,13 @@ export default function OrcamentosPage() {
   };
 
   const handleOpenBudget = (budget: any) => {
-    // BUG FIX: O backend pode devolver o cliente já populado em budget.client
-    // Então tentamos buscar na lista, se falhar, usamos o objeto client embutido no orçamento.
     const mappedClient = clients.find(c => (c.clientId || c.id) === (budget.clientId || budget.client?.clientId)) || budget.client;
-    
-    // BUG FIX: Busca o funcionário. Se não estiver na lista por atraso de fetch, usa um objeto de fallback visual
     const mappedEmployee = employees.find(e => (e.employeeId || e.id) === budget.userId) || 
                           (budget.userId ? { employeeName: 'Responsável (ID: ' + budget.userId + ')', email: '' } as any : null);
     
     setSelectedClient(mappedClient || null);
     setSelectedUser(mappedEmployee || null);
+    setFieldErrors({}); // Limpa erros ao abrir edição
 
     const safeStatus = parseStatus(budget.status);
 
@@ -269,6 +295,7 @@ export default function OrcamentosPage() {
   const handleCreateNew = () => {
     setSelectedClient(null);
     setSelectedUser(null);
+    setFieldErrors({}); // Limpa erros ao abrir novo
     setBudgetForm(initialFormState);
     setBudgetView('create');
   };
@@ -282,7 +309,6 @@ export default function OrcamentosPage() {
     return <span className="px-3 py-1 bg-zinc-100 text-zinc-500 rounded-full text-[10px] font-bold uppercase">Desconhecido</span>;
   };
 
-  // Funções de manipulação de Array (Protegidas pelo isReadOnly)
   const addStage = () => {
     if (isReadOnly) return;
     setBudgetForm(prev => ({ ...prev, stages: [...prev.stages, { id: Date.now(), description: '', order: prev.stages.length + 1, materials: [], labors: [] }] }));
@@ -322,73 +348,6 @@ export default function OrcamentosPage() {
     updateBudgetTotals();
   }, [budgetForm.stages]);
 
-  const renderSelectionModal = (
-    title: string, data: any[], isOpen: boolean, onClose: () => void, onSelect: (item: any) => void, type: 'client' | 'user'
-  ) => {
-    if (!isOpen) return null;
-    const filtered = data.filter(item => {
-      const nomeBase = type === 'client' ? item.fantasyName : item.employeeName;
-      return (nomeBase || '').toLowerCase().includes(modalSearchQuery.toLowerCase());
-    });
-
-    return (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-        <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" onClick={onClose}></div>
-        <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl relative z-10 overflow-hidden animate-in zoom-in-95 duration-200">
-          <div className="p-8 border-b border-gray-100">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-gray-800">{title}</h3>
-              <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors cursor-pointer"><X size={20} /></button>
-            </div>
-            <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-              <input 
-                type="text" placeholder="Pesquisar..." 
-                className="w-full pl-12 pr-4 py-3 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-orange-500/20 outline-none text-gray-800 text-sm font-medium"
-                value={modalSearchQuery} onChange={(e) => setModalSearchQuery(e.target.value)} autoFocus
-              />
-            </div>
-          </div>
-          <div className="max-h-[400px] overflow-y-auto p-4 space-y-2">
-            {filtered.map(item => (
-              <button 
-                key={item.id || item.clientId || item.employeeId} 
-                onClick={() => { 
-                  onSelect(item); 
-                  if(type === 'client') setBudgetForm({...budgetForm, clientId: item.id || item.clientId});
-                  if(type === 'user') setBudgetForm({...budgetForm, userId: item.id || item.employeeId}); 
-                  onClose(); 
-                  setModalSearchQuery(''); 
-                }}
-                className="w-full flex items-center justify-between p-4 hover:bg-orange-50 rounded-2xl transition-all group text-left border border-transparent hover:border-orange-100 cursor-pointer"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center text-gray-500 group-hover:bg-orange-600 group-hover:text-white transition-colors">
-                    {type === 'client' ? <Building2 size={20} /> : <UserCheck size={20} />}
-                  </div>
-                  <div>
-                    <p className="font-bold text-gray-800">{type === 'client' ? item.fantasyName : item.employeeName}</p>
-                    <p className="text-xs text-gray-500">{item.registrationNumber || item.email}</p>
-                  </div>
-                </div>
-                <ChevronRight size={18} className="text-gray-300 group-hover:text-orange-600" />
-              </button>
-            ))}
-            {filtered.length === 0 && (
-              <div className="py-12 text-center text-gray-400">
-                <Search size={40} className="mx-auto mb-2 opacity-20" />
-                <p>Nenhum resultado encontrado.</p>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // ========================================================
-  // 🖥️ TELA: LISTAGEM (COM BUSCA E ORDENAÇÃO)
-  // ========================================================
   const filteredAndSortedBudgets = budgets
     .filter(budget => {
       const searchLower = listSearchQuery.toLowerCase();
@@ -399,7 +358,7 @@ export default function OrcamentosPage() {
     .sort((a, b) => {
       const idA = a.budgetId || a.id || 0;
       const idB = b.budgetId || b.id || 0;
-      return idB - idA; // Ordenação decrescente: Últimos primeiro
+      return idB - idA;
     });
 
   if (budgetView === 'list') {
@@ -479,9 +438,6 @@ export default function OrcamentosPage() {
     );
   }
 
-  // ========================================================
-  // 🖥️ TELA: FORMULÁRIO (CRIAR / EDITAR)
-  // ========================================================
   return (
     <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
       
@@ -521,7 +477,7 @@ export default function OrcamentosPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
         <div className="lg:col-span-2 space-y-8">
           
-          <section className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm overflow-hidden relative">
+          <section className={`bg-white p-8 rounded-[2.5rem] border shadow-sm overflow-hidden relative transition-all ${fieldErrors.client || fieldErrors.user ? 'border-red-300 ring-4 ring-red-50' : 'border-gray-100'}`}>
             <div className="absolute top-0 right-0 w-32 h-32 bg-orange-50/30 rounded-full -mr-16 -mt-16 blur-3xl"></div>
             <h3 className="text-lg font-bold text-gray-800 mb-8 flex items-center gap-2 relative z-10">
               <Users size={20} className="text-orange-600" /> Envolvidos no Projeto
@@ -529,12 +485,12 @@ export default function OrcamentosPage() {
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 relative z-10">
               <div className="space-y-4">
-                <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest ml-1">Cliente Solicitante *</label>
+                <label className={`block text-[11px] font-bold uppercase tracking-widest ml-1 ${fieldErrors.client ? 'text-red-500' : 'text-gray-400'}`}>Cliente Solicitante *</label>
                 {!selectedClient ? (
                   <button 
                     onClick={() => !isReadOnly && setIsClientModalOpen(true)}
                     disabled={isReadOnly}
-                    className={`w-full h-24 border-2 border-dashed rounded-[2rem] flex flex-col items-center justify-center gap-2 transition-all ${isReadOnly ? 'border-gray-100 text-gray-300 bg-gray-50 cursor-not-allowed' : 'border-gray-200 text-gray-400 hover:border-orange-200 hover:bg-orange-50/30 hover:text-orange-600 group cursor-pointer'}`}
+                    className={`w-full h-24 border-2 border-dashed rounded-[2rem] flex flex-col items-center justify-center gap-2 transition-all ${isReadOnly ? 'border-gray-100 text-gray-300 bg-gray-50 cursor-not-allowed' : fieldErrors.client ? 'border-red-300 text-red-500 bg-red-50/50 hover:bg-red-100 cursor-pointer' : 'border-gray-200 text-gray-400 hover:border-orange-200 hover:bg-orange-50/30 hover:text-orange-600 group cursor-pointer'}`}
                   >
                     <Plus size={24} className={!isReadOnly ? "group-hover:scale-110 transition-transform" : ""} />
                     <span className="text-sm font-bold">Selecionar Cliente</span>
@@ -557,15 +513,16 @@ export default function OrcamentosPage() {
                     )}
                   </div>
                 )}
+                {fieldErrors.client && <p className="text-[11px] font-bold text-red-500 ml-1">{fieldErrors.client}</p>}
               </div>
 
               <div className="space-y-4">
-                <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest ml-1">Responsável Técnico (Funcionário) *</label>
+                <label className={`block text-[11px] font-bold uppercase tracking-widest ml-1 ${fieldErrors.user ? 'text-red-500' : 'text-gray-400'}`}>Responsável Técnico *</label>
                 {!selectedUser ? (
                   <button 
                     onClick={() => !isReadOnly && setIsUserModalOpen(true)}
                     disabled={isReadOnly}
-                    className={`w-full h-24 border-2 border-dashed rounded-[2rem] flex flex-col items-center justify-center gap-2 transition-all ${isReadOnly ? 'border-gray-100 text-gray-300 bg-gray-50 cursor-not-allowed' : 'border-gray-200 text-gray-400 hover:border-orange-200 hover:bg-orange-50/30 hover:text-orange-600 group cursor-pointer'}`}
+                    className={`w-full h-24 border-2 border-dashed rounded-[2rem] flex flex-col items-center justify-center gap-2 transition-all ${isReadOnly ? 'border-gray-100 text-gray-300 bg-gray-50 cursor-not-allowed' : fieldErrors.user ? 'border-red-300 text-red-500 bg-red-50/50 hover:bg-red-100 cursor-pointer' : 'border-gray-200 text-gray-400 hover:border-orange-200 hover:bg-orange-50/30 hover:text-orange-600 group cursor-pointer'}`}
                   >
                     <Plus size={24} className={!isReadOnly ? "group-hover:scale-110 transition-transform" : ""} />
                     <span className="text-sm font-bold">Definir Responsável</span>
@@ -588,6 +545,7 @@ export default function OrcamentosPage() {
                     )}
                   </div>
                 )}
+                {fieldErrors.user && <p className="text-[11px] font-bold text-red-500 ml-1">{fieldErrors.user}</p>}
               </div>
             </div>
           </section>
@@ -595,15 +553,19 @@ export default function OrcamentosPage() {
           <section className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="md:col-span-2">
-                <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2 ml-1">Descrição do Orçamento *</label>
+                <label className={`block text-[11px] font-bold uppercase tracking-widest mb-2 ml-1 ${fieldErrors.description ? 'text-red-500' : 'text-gray-400'}`}>Descrição do Orçamento *</label>
                 <input 
                   type="text" 
                   disabled={isReadOnly}
                   placeholder="Ex: Reforma de Telhado e Pintura Externa"
-                  className="w-full px-5 py-3.5 bg-gray-50 border border-transparent rounded-2xl focus:bg-white focus:border-orange-500 outline-none transition-all text-sm font-medium text-gray-800 disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed"
+                  className={`w-full px-5 py-3.5 border rounded-2xl outline-none transition-all text-sm font-medium text-gray-800 disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed ${fieldErrors.description ? 'bg-red-50/50 border-red-300 focus:border-red-500 focus:bg-white' : 'bg-gray-50 border-transparent focus:bg-white focus:border-orange-500'}`}
                   value={budgetForm.description}
-                  onChange={(e) => setBudgetForm({...budgetForm, description: e.target.value})}
+                  onChange={(e) => {
+                    setBudgetForm({...budgetForm, description: e.target.value});
+                    if(fieldErrors.description) setFieldErrors({...fieldErrors, description: ''});
+                  }}
                 />
+                {fieldErrors.description && <p className="text-[11px] font-bold text-red-500 mt-1 ml-1">{fieldErrors.description}</p>}
               </div>
               <div className="md:col-span-2">
                 <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 ml-1">Observações Internas</label>
@@ -620,12 +582,24 @@ export default function OrcamentosPage() {
               <div className="md:col-span-2 mt-4">
                 <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2 ml-1">Local da Obra (Endereço)</label>
                 <div className="grid grid-cols-6 gap-3">
-                  <input type="text" maxLength={8} disabled={isReadOnly} className="col-span-2 px-4 py-3 bg-gray-50 border border-transparent rounded-xl text-xs font-semibold outline-none text-gray-800 focus:bg-white focus:border-orange-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" placeholder="CEP" value={budgetForm.zipCode} onChange={(e) => setBudgetForm({...budgetForm, zipCode: e.target.value.replace(/\D/g, '')})} />
-                  <input type="text" disabled={isReadOnly} className="col-span-4 px-4 py-3 bg-gray-50 border border-transparent rounded-xl text-xs font-semibold outline-none text-gray-800 focus:bg-white focus:border-orange-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" placeholder="Rua / Av" value={budgetForm.street} onChange={(e) => setBudgetForm({...budgetForm, street: e.target.value})} />
-                  <input type="text" disabled={isReadOnly} className="col-span-1 px-4 py-3 bg-gray-50 border border-transparent rounded-xl text-xs font-semibold outline-none text-gray-800 focus:bg-white focus:border-orange-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" placeholder="Nº" value={budgetForm.number} onChange={(e) => setBudgetForm({...budgetForm, number: e.target.value})} />
-                  <input type="text" disabled={isReadOnly} className="col-span-2 px-4 py-3 bg-gray-50 border border-transparent rounded-xl text-xs font-semibold outline-none text-gray-800 focus:bg-white focus:border-orange-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" placeholder="Bairro" value={budgetForm.neighborhood} onChange={(e) => setBudgetForm({...budgetForm, neighborhood: e.target.value})} />
-                  <input type="text" disabled={isReadOnly} className="col-span-2 px-4 py-3 bg-gray-50 border border-transparent rounded-xl text-xs font-semibold outline-none text-gray-800 focus:bg-white focus:border-orange-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" placeholder="Cidade" value={budgetForm.city} onChange={(e) => setBudgetForm({...budgetForm, city: e.target.value})} />
-                  <input type="text" maxLength={2} disabled={isReadOnly} className="col-span-1 px-4 py-3 bg-gray-50 border border-transparent rounded-xl text-xs font-semibold uppercase outline-none text-gray-800 focus:bg-white focus:border-orange-500 text-center disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" placeholder="UF" value={budgetForm.stateAbbreviation} onChange={(e) => setBudgetForm({...budgetForm, stateAbbreviation: e.target.value})} />
+                  <div className="col-span-2">
+                    <input type="text" maxLength={8} disabled={isReadOnly} className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-xs font-semibold outline-none text-gray-800 disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed ${fieldErrors.zipCode ? 'border-red-300 bg-red-50' : 'border-transparent focus:bg-white focus:border-orange-500'}`} placeholder="CEP *" value={budgetForm.zipCode} onChange={(e) => { setBudgetForm({...budgetForm, zipCode: e.target.value.replace(/\D/g, '')}); if(fieldErrors.zipCode) setFieldErrors({...fieldErrors, zipCode: ''}); }} />
+                  </div>
+                  <div className="col-span-4">
+                    <input type="text" disabled={isReadOnly} className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-xs font-semibold outline-none text-gray-800 disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed ${fieldErrors.street ? 'border-red-300 bg-red-50' : 'border-transparent focus:bg-white focus:border-orange-500'}`} placeholder="Rua / Av *" value={budgetForm.street} onChange={(e) => { setBudgetForm({...budgetForm, street: e.target.value}); if(fieldErrors.street) setFieldErrors({...fieldErrors, street: ''}); }} />
+                  </div>
+                  <div className="col-span-1">
+                    <input type="text" disabled={isReadOnly} className="w-full px-4 py-3 bg-gray-50 border border-transparent rounded-xl text-xs font-semibold outline-none text-gray-800 focus:bg-white focus:border-orange-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" placeholder="Nº" value={budgetForm.number} onChange={(e) => setBudgetForm({...budgetForm, number: e.target.value})} />
+                  </div>
+                  <div className="col-span-2">
+                    <input type="text" disabled={isReadOnly} className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-xs font-semibold outline-none text-gray-800 disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed ${fieldErrors.neighborhood ? 'border-red-300 bg-red-50' : 'border-transparent focus:bg-white focus:border-orange-500'}`} placeholder="Bairro *" value={budgetForm.neighborhood} onChange={(e) => { setBudgetForm({...budgetForm, neighborhood: e.target.value}); if(fieldErrors.neighborhood) setFieldErrors({...fieldErrors, neighborhood: ''}); }} />
+                  </div>
+                  <div className="col-span-2">
+                    <input type="text" disabled={isReadOnly} className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-xs font-semibold outline-none text-gray-800 disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed ${fieldErrors.city ? 'border-red-300 bg-red-50' : 'border-transparent focus:bg-white focus:border-orange-500'}`} placeholder="Cidade *" value={budgetForm.city} onChange={(e) => { setBudgetForm({...budgetForm, city: e.target.value}); if(fieldErrors.city) setFieldErrors({...fieldErrors, city: ''}); }} />
+                  </div>
+                  <div className="col-span-1">
+                    <input type="text" maxLength={2} disabled={isReadOnly} className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-xs font-semibold uppercase outline-none text-gray-800 text-center disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed ${fieldErrors.stateAbbreviation ? 'border-red-300 bg-red-50' : 'border-transparent focus:bg-white focus:border-orange-500'}`} placeholder="UF *" value={budgetForm.stateAbbreviation} onChange={(e) => { setBudgetForm({...budgetForm, stateAbbreviation: e.target.value}); if(fieldErrors.stateAbbreviation) setFieldErrors({...fieldErrors, stateAbbreviation: ''}); }} />
+                  </div>
                 </div>
               </div>
             </div>
@@ -686,7 +660,6 @@ export default function OrcamentosPage() {
                       )}
                     </div>
                     
-                    {/* Cabeçalho da Tabela de Materiais (Desktop) */}
                     {stage.materials.length > 0 && (
                       <div className="hidden md:flex gap-3 px-4 mb-2 mt-4">
                         <div className="flex-[3] text-[10px] font-black text-gray-400 uppercase tracking-widest">Descrição do Material</div>
@@ -737,7 +710,6 @@ export default function OrcamentosPage() {
                       )}
                     </div>
 
-                    {/* Cabeçalho da Tabela de Mão de Obra (Desktop) */}
                     {stage.labors.length > 0 && (
                       <div className="hidden md:flex gap-3 px-4 mb-2 mt-4">
                         <div className="flex-[2] text-[10px] font-black text-gray-400 uppercase tracking-widest">ID Cargo / Função</div>
@@ -846,7 +818,12 @@ export default function OrcamentosPage() {
       {isClientModalOpen && (
         <SelectionModal 
           title="Selecionar Cliente" data={clients} 
-          onSelect={(c: any) => { setSelectedClient(c); setBudgetForm({...budgetForm, clientId: c.id || c.clientId}); setIsClientModalOpen(false); }} 
+          onSelect={(c: any) => { 
+            setSelectedClient(c); 
+            setBudgetForm({...budgetForm, clientId: c.id || c.clientId}); 
+            if(fieldErrors.client) setFieldErrors({...fieldErrors, client: ''});
+            setIsClientModalOpen(false); 
+          }} 
           onClose={() => setIsClientModalOpen(false)} 
         />
       )}
@@ -854,7 +831,12 @@ export default function OrcamentosPage() {
         <SelectionModal 
           title="Selecionar Responsável" data={employees} 
           nameKey="employeeName"
-          onSelect={(e: any) => { setSelectedUser(e); setBudgetForm({...budgetForm, userId: e.id || e.employeeId}); setIsUserModalOpen(false); }} 
+          onSelect={(e: any) => { 
+            setSelectedUser(e); 
+            setBudgetForm({...budgetForm, userId: e.id || e.employeeId}); 
+            if(fieldErrors.user) setFieldErrors({...fieldErrors, user: ''});
+            setIsUserModalOpen(false); 
+          }} 
           onClose={() => setIsUserModalOpen(false)} 
         />
       )}

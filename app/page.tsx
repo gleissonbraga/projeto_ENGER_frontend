@@ -147,7 +147,13 @@ export default function EngerHome() {
 
       if (apiData?.errors && Array.isArray(apiData.errors)) {
         const errorMessages = apiData.errors.map((e: any) => e.message).join(" ");
-        setError(errorMessages);
+
+
+        if(errorMessages == "Sua assinatura está inválida."){
+          window.location.href = "/pagamento"
+        }else {
+          setError(errorMessages);
+        }
       } 
       else if (apiData?.message) {
         setError(apiData.message);
