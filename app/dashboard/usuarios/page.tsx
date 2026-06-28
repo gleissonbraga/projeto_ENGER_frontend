@@ -91,7 +91,6 @@ export default function UsuariosPage() {
 
   const getRoleName = (level: number) => {
     switch (level) {
-      case 7: return 'Master (Dono)';
       case 6: return 'Especial (Owner)';
       case 5: return 'Gestor (Eng/Arq)';
       case 4: return 'Encarregado (Fiscal)';

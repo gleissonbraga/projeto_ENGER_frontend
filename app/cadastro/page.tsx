@@ -20,7 +20,6 @@ import {
   ArrowRight,
 } from "lucide-react";
 import api from "@/services/api";
-import { Console } from "console";
 import { clearFormatting, maskCNPJ, validateCNPJ } from "@/utils/formatters";
 
 // 1. Definição da Interface para garantir que nenhum campo seja excluído
@@ -94,16 +93,48 @@ const CompanyRegistration = () => {
     }
   };
 
+  // ==========================================
+  // NOVA FUNÇÃO: Busca o CEP na ViaCEP
+  // ==========================================
+  const handleCepBlur = async (e: React.FocusEvent<HTMLInputElement>) => {
+    // Remove qualquer formatação (hífen, espaço) e pega só os números
+    const cepLimpo = e.target.value.replace(/\D/g, '');
+
+    // Só busca se tiver exatamente 8 dígitos
+    if (cepLimpo.length !== 8) return;
+
+    try {
+      const response = await fetch(`https://viacep.com.br/ws/${cepLimpo}/json/`);
+      const data = await response.json();
+
+      if (data.erro) {
+        console.log("CEP não encontrado na base dos Correios.");
+        return;
+      }
+
+      // Atualiza o formulário com os dados encontrados
+      setFormData((prev) => ({
+        ...prev,
+        street: data.logradouro || prev.street,
+        neighborhood: data.bairro || prev.neighborhood,
+        city: data.localidade || prev.city,
+        federativeunit: data.uf || prev.federativeunit,
+      }));
+    } catch (error) {
+      console.error("Erro ao buscar CEP:", error);
+    }
+  };
+
   const passwordsMatch = formData.password === formData.confirmPassword;
 
   const isStepValid = () => {
     switch (currentStep) {
       case 1:
-        const isCnpjOk = validateCNPJ(formData.registrationNumber);
         return (
           formData.reasonName.trim() !== "" &&
           formData.fantasyName.trim() !== "" &&
-          formData.rGIeNumber.trim() !== ""
+          formData.rGIeNumber.trim() !== "" &&
+          formData.registrationNumber.trim() !== "" // Agora só exige que esteja preenchido
         );
       case 2:
         return (
@@ -122,7 +153,7 @@ const CompanyRegistration = () => {
           formData.emailUser.trim() !== "" &&
           formData.password.trim() !== "" &&
           formData.confirmPassword.trim() !== "" &&
-          isPasswordMatch // Só retorna true se forem iguais
+          isPasswordMatch
         );
       default:
         return true;
@@ -140,12 +171,9 @@ const CompanyRegistration = () => {
   };
 
   const handleNext = () => {
-    // Primeiro, ativamos a exibição de erros para o passo atual
     setShowErrors(true);
 
-    // Depois, verificamos se o passo é válido
     if (isStepValid()) {
-      // Se for válido, podemos avançar e "limpar" o estado de erro para o próximo passo
       setShowErrors(false);
       setCurrentStep((prev) => prev + 1);
     }
@@ -157,35 +185,27 @@ const CompanyRegistration = () => {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    setLoading(true); // Inicia o estado de carregamento
+    setLoading(true);
 
     const dataToSend = {
       ...formData,
       registrationNumber: clearFormatting(formData.registrationNumber),
-      zipCode: clearFormatting(formData.zipCode), // Aproveite para limpar o CEP também
+      zipCode: clearFormatting(formData.zipCode),
     };
 
     try {
-      // Enviando o formData completo para o seu backend C#
-      console.log(formData);
       const response = await api.post("/empresas/cadastro", dataToSend);
-
-      console.log("Sucesso:", response.data);
-
       const novaEmpresaId = response.data.companyId;
 
       localStorage.setItem('enger_nova_empresa_id', novaEmpresaId);
 
       router.push('/pagamento');
-      // Opcional: Redirecionar o usuário após o sucesso
-      // window.location.href = '/login';
     } catch (error: any) {
       console.error(
         "Erro ao cadastrar:",
         error.response?.data || error.message,
       );
 
-      // Trata o erro vindo do ApplicException do seu backend
       const apiErrors = error.response?.data?.errors;
       if (apiErrors?.errors && Array.isArray(apiErrors.errors)) {
         const errorMessages = apiErrors.errors
@@ -198,52 +218,27 @@ const CompanyRegistration = () => {
         );
       }
     } finally {
-      setLoading(false); // Libera o botão
+      setLoading(false);
     }
   };
 
   const steps = [
-    {
-      id: 1,
-      title: "Dados Jurídicos",
-      description: "Informações da empresa",
-      icon: Briefcase,
-    },
-    {
-      id: 2,
-      title: "Localização",
-      description: "Endereço e contatos",
-      icon: Map,
-    },
-    {
-      id: 3,
-      title: "Administrador",
-      description: "Credenciais de acesso",
-      icon: Lock,
-    },
-    {
-      id: 4,
-      title: "Revisão",
-      description: "Confirme os dados",
-      icon: CheckCircle2,
-    },
+    { id: 1, title: "Dados Jurídicos", description: "Informações da empresa", icon: Briefcase },
+    { id: 2, title: "Localização", description: "Endereço e contatos", icon: Map },
+    { id: 3, title: "Administrador", description: "Credenciais de acesso", icon: Lock },
+    { id: 4, title: "Revisão", description: "Confirme os dados", icon: CheckCircle2 },
   ];
 
   const renderStep1 = () => (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="mb-8">
         <h2 className="text-2xl font-bold text-gray-900">Sobre a Empresa</h2>
-        <p className="text-gray-500 mt-1">
-          Preencha os dados jurídicos e oficiais da organização.
-        </p>
+        <p className="text-gray-500 mt-1">Preencha os dados jurídicos e oficiais da organização.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Razão Social - Ocupa 2 colunas (Linha 1) */}
         <div className="md:col-span-2 group">
-          <label
-            className={`block text-sm font-semibold mb-2 ${showErrors && !formData.reasonName ? "text-red-500" : "text-gray-700"}`}
-          >
+          <label className={`block text-sm font-semibold mb-2 ${showErrors && !formData.reasonName ? "text-red-500" : "text-gray-700"}`}>
             Razão Social *
           </label>
           <div className="relative">
@@ -261,13 +256,10 @@ const CompanyRegistration = () => {
             />
           </div>
           {showErrors && !formData.reasonName && (
-            <span className="text-red-500 text-xs mt-1">
-              Este campo é obrigatório
-            </span>
+            <span className="text-red-500 text-xs mt-1">Este campo é obrigatório</span>
           )}
         </div>
 
-        {/* Nome Fantasia - Ocupa 2 colunas (Linha 2) */}
         <div className="md:col-span-2 group">
           <label className="block text-sm font-semibold text-gray-700 mb-2 group-focus-within:text-orange-600 transition-colors">
             Nome Fantasia
@@ -287,17 +279,12 @@ const CompanyRegistration = () => {
             />
           </div>
           {showErrors && !formData.fantasyName && (
-            <span className="text-red-500 text-xs mt-1">
-              Este campo é obrigatório
-            </span>
+            <span className="text-red-500 text-xs mt-1">Este campo é obrigatório</span>
           )}
         </div>
 
-        {/* CNPJ - Ocupa 1 coluna (Linha 3, Esquerda) */}
         <div className="group">
-          <label
-            className={`block text-sm font-semibold mb-2 ${showErrors && !formData.registrationNumber ? "text-red-500" : "text-gray-700"}`}
-          >
+          <label className={`block text-sm font-semibold mb-2 ${showErrors && !formData.registrationNumber ? "text-red-500" : "text-gray-700"}`}>
             CNPJ *
           </label>
           <div className="relative">
@@ -315,13 +302,10 @@ const CompanyRegistration = () => {
             />
           </div>
           {showErrors && !formData.registrationNumber && (
-            <span className="text-red-500 text-xs mt-1">
-              Este campo é obrigatório
-            </span>
+            <span className="text-red-500 text-xs mt-1">Este campo é obrigatório</span>
           )}
         </div>
 
-        {/* Inscrição Estadual - Ocupa 1 coluna (Linha 3, Direita) */}
         <div className="group">
           <label className="block text-sm font-semibold text-gray-700 mb-2 group-focus-within:text-orange-600 transition-colors">
             Inscrição Estadual (IE)
@@ -341,9 +325,7 @@ const CompanyRegistration = () => {
             />
           </div>
           {showErrors && !formData.rGIeNumber && (
-            <span className="text-red-500 text-xs mt-1">
-              Este campo é obrigatório
-            </span>
+            <span className="text-red-500 text-xs mt-1">Este campo é obrigatório</span>
           )}
         </div>
       </div>
@@ -353,12 +335,8 @@ const CompanyRegistration = () => {
   const renderStep2 = () => (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="mb-8">
-        <h2 className="text-2xl font-bold text-gray-900">
-          Localização e Contato
-        </h2>
-        <p className="text-gray-500 mt-1">
-          Onde a empresa está localizada e como podemos contatá-la.
-        </p>
+        <h2 className="text-2xl font-bold text-gray-900">Localização e Contato</h2>
+        <p className="text-gray-500 mt-1">Onde a empresa está localizada e como podemos contatá-la.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-6 gap-6">
@@ -380,9 +358,7 @@ const CompanyRegistration = () => {
             />
           </div>
           {showErrors && !formData.email && (
-            <span className="text-red-500 text-xs mt-1">
-              Este campo é obrigatório
-            </span>
+            <span className="text-red-500 text-xs mt-1">Este campo é obrigatório</span>
           )}
         </div>
 
@@ -404,9 +380,7 @@ const CompanyRegistration = () => {
             />
           </div>
           {showErrors && !formData.phoneNumber && (
-            <span className="text-red-500 text-xs mt-1">
-              Este campo é obrigatório
-            </span>
+            <span className="text-red-500 text-xs mt-1">Este campo é obrigatório</span>
           )}
         </div>
 
@@ -422,14 +396,13 @@ const CompanyRegistration = () => {
               name="zipCode"
               value={formData.zipCode}
               onChange={handleChange}
+              onBlur={handleCepBlur} // <--- ADICIONADO AQUI
               className={getInputClass(formData.zipCode) + " pl-10"}
               placeholder="00000-000"
             />
           </div>
           {showErrors && !formData.zipCode && (
-            <span className="text-red-500 text-xs mt-1">
-              Este campo é obrigatório
-            </span>
+            <span className="text-red-500 text-xs mt-1">Este campo é obrigatório</span>
           )}
         </div>
 
@@ -448,9 +421,7 @@ const CompanyRegistration = () => {
             />
           </div>
           {showErrors && !formData.street && (
-            <span className="text-red-500 text-xs mt-1">
-              Este campo é obrigatório
-            </span>
+            <span className="text-red-500 text-xs mt-1">Este campo é obrigatório</span>
           )}
         </div>
 
@@ -469,9 +440,7 @@ const CompanyRegistration = () => {
             />
           </div>
           {showErrors && !formData.number && (
-            <span className="text-red-500 text-xs mt-1">
-              Este campo é obrigatório
-            </span>
+            <span className="text-red-500 text-xs mt-1">Este campo é obrigatório</span>
           )}
         </div>
 
@@ -490,9 +459,7 @@ const CompanyRegistration = () => {
             />
           </div>
           {showErrors && !formData.neighborhood && (
-            <span className="text-red-500 text-xs mt-1">
-              Este campo é obrigatório
-            </span>
+            <span className="text-red-500 text-xs mt-1">Este campo é obrigatório</span>
           )}
         </div>
 
@@ -511,9 +478,7 @@ const CompanyRegistration = () => {
             />
           </div>
           {showErrors && !formData.city && (
-            <span className="text-red-500 text-xs mt-1">
-              Este campo é obrigatório
-            </span>
+            <span className="text-red-500 text-xs mt-1">Este campo é obrigatório</span>
           )}
         </div>
 
@@ -528,10 +493,33 @@ const CompanyRegistration = () => {
             className={getInputClass(formData.federativeunit) + " pl-10"}
           >
             <option value="">Selecione...</option>
-            <option value="SP">SP</option>
-            <option value="RJ">RJ</option>
+            <option value="AC">AC</option>
+            <option value="AL">AL</option>
+            <option value="AP">AP</option>
+            <option value="AM">AM</option>
+            <option value="BA">BA</option>
+            <option value="CE">CE</option>
+            <option value="DF">DF</option>
+            <option value="ES">ES</option>
+            <option value="GO">GO</option>
+            <option value="MA">MA</option>
+            <option value="MT">MT</option>
+            <option value="MS">MS</option>
             <option value="MG">MG</option>
+            <option value="PA">PA</option>
+            <option value="PB">PB</option>
+            <option value="PR">PR</option>
+            <option value="PE">PE</option>
+            <option value="PI">PI</option>
+            <option value="RJ">RJ</option>
+            <option value="RN">RN</option>
             <option value="RS">RS</option>
+            <option value="RO">RO</option>
+            <option value="RR">RR</option>
+            <option value="SC">SC</option>
+            <option value="SP">SP</option>
+            <option value="SE">SE</option>
+            <option value="TO">TO</option>
           </select>
         </div>
       </div>
@@ -541,24 +529,16 @@ const CompanyRegistration = () => {
   const renderStep3 = () => (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="mb-8">
-        <h2 className="text-2xl font-bold text-gray-900">
-          Usuário Administrador
-        </h2>
-        <p className="text-gray-500 mt-1">
-          Crie a primeira conta com acesso total ao painel da empresa.
-        </p>
+        <h2 className="text-2xl font-bold text-gray-900">Usuário Administrador</h2>
+        <p className="text-gray-500 mt-1">Crie a primeira conta com acesso total ao painel da empresa.</p>
       </div>
 
       <div className="bg-orange-50 border border-orange-100 rounded-xl p-4 flex items-start gap-3 mb-6">
-        <ShieldAlert
-          className="text-orange-500 mt-0.5 flex-shrink-0"
-          size={20}
-        />
+        <ShieldAlert className="text-orange-500 mt-0.5 flex-shrink-0" size={20} />
         <div>
           <h4 className="font-medium text-orange-900 text-sm">Acesso Master</h4>
           <p className="text-orange-700/80 text-xs mt-1">
-            Este usuário será o responsável por gerenciar a plataforma e
-            convidar novos membros.
+            Este usuário será o responsável por gerenciar a plataforma e convidar novos membros.
           </p>
         </div>
       </div>
@@ -582,9 +562,7 @@ const CompanyRegistration = () => {
             />
           </div>
           {showErrors && !formData.username && (
-            <span className="text-red-500 text-xs mt-1">
-              Este campo é obrigatório
-            </span>
+            <span className="text-red-500 text-xs mt-1">Este campo é obrigatório</span>
           )}
         </div>
 
@@ -602,9 +580,7 @@ const CompanyRegistration = () => {
             />
           </div>
           {showErrors && !formData.dateOfBirth && (
-            <span className="text-red-500 text-xs mt-1">
-              Este campo é obrigatório
-            </span>
+            <span className="text-red-500 text-xs mt-1">Este campo é obrigatório</span>
           )}
         </div>
 
@@ -626,9 +602,7 @@ const CompanyRegistration = () => {
             />
           </div>
           {showErrors && !formData.emailUser && (
-            <span className="text-red-500 text-xs mt-1">
-              Este campo é obrigatório
-            </span>
+            <span className="text-red-500 text-xs mt-1">Este campo é obrigatório</span>
           )}
         </div>
 
@@ -651,7 +625,6 @@ const CompanyRegistration = () => {
           )}
         </div>
 
-        {/* Confirmar Senha */}
         <div className="group">
           <label className={`block text-sm font-semibold mb-2 ${showErrors && (!formData.confirmPassword || !passwordsMatch) ? 'text-red-500' : 'text-gray-700'}`}>
             Confirmar Senha *
@@ -662,7 +635,6 @@ const CompanyRegistration = () => {
             </div>
             <input 
               type="password" name="confirmPassword" value={formData.confirmPassword} onChange={handleChange}
-              // Força o estilo vermelho caso as senhas não coincidam
               className={`${getInputClass(formData.confirmPassword)} pl-10 ${showErrors && !passwordsMatch ? 'border-red-500 bg-red-50' : ''}`}
               placeholder="••••••••"
             />

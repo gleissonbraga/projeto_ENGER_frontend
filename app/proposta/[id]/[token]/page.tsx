@@ -41,7 +41,10 @@ export default function ClientBudgetApproval() {
     const fetchBudgetByToken = async () => {
       try {
         setIsLoading(true);
-        const response = await api.get(`/orcamento/proposta/${id}/${token}`);
+        const response = await api.get(`/orcamento/proposta/${id}/${token}`, 
+        {
+          withCredentials: true 
+        });
         const data = response.data;
         
         const safeStatus = parseStatus(data.status);

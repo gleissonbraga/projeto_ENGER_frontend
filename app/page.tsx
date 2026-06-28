@@ -140,7 +140,11 @@ export default function EngerHome() {
 
       document.cookie = "enger_assinatura_expirada=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
       setIsLoginOpen(false);
-      window.location.href = "/dashboard";
+      if (adminLevel === 7) {
+        window.location.href = "/configuracoes/site/dashboard";
+      } else {
+        window.location.href = "/dashboard";
+      }
 
     } catch (err: any) {
       const apiData = err.response?.data;
@@ -376,7 +380,7 @@ export default function EngerHome() {
               </Link>
             ) : (
               <Link href="/cadastro" className="bg-zinc-900 hover:bg-zinc-800 text-white px-8 py-4 rounded-lg font-bold flex items-center justify-center gap-2 transition-all hover:scale-105 cursor-pointer">
-                Começar Teste Grátis <ArrowRight />
+                Começar <ArrowRight />
               </Link>
             )}
           </div>
@@ -447,9 +451,9 @@ export default function EngerHome() {
                       R$ {plan.subscriptionValue.toLocaleString("pt-br", { minimumFractionDigits: 2 })}
                     </span>
                   </div>
-                  <button onClick={() => setIsLoginOpen(true)} className={`w-full font-bold py-3 rounded-lg transition-all cursor-pointer ${isAnual ? "bg-orange-500 text-white" : "bg-zinc-100 text-zinc-900"}`}>
-                    Assinar {plan.descriptionSubscriptionType}
-                  </button>
+                  <Link href="/cadastro" className={`w-full font-bold py-3 rounded-lg transition-all cursor-pointer ${isAnual ? "bg-orange-500 text-white" : "bg-zinc-100 text-zinc-900"}`}>
+                    Assinar
+                  </Link>
                 </div>
               );
             })}
